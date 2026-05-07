@@ -204,6 +204,7 @@ function openBetModal(i) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('amount').setLabel('Amount in ₹')
         .setStyle(TextInputStyle.Short).setRequired(true)
+        .setPlaceholder(`min ₹${process.env.MIN_BET || 1} – max ₹${process.env.MAX_BET || 10000}`)
     ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('auto').setLabel('Auto cash-out at (e.g. 2.0, optional)')

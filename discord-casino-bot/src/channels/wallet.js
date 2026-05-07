@@ -54,7 +54,7 @@ function depositModal(i) {
   m.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder().setCustomId('amount').setLabel('Amount in ₹')
       .setStyle(TextInputStyle.Short).setRequired(true)
-      .setPlaceholder(`min ${process.env.MIN_DEPOSIT || 100}`)));
+      .setPlaceholder(`min ₹${process.env.MIN_DEPOSIT || 50} – max ₹${process.env.MAX_DEPOSIT || 50000}`)));
   return i.showModal(m);
 }
 

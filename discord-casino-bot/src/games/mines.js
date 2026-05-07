@@ -80,7 +80,8 @@ function openModal(i) {
   m.addComponents(
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('amount').setLabel('Stake ₹')
-        .setStyle(TextInputStyle.Short).setRequired(true)),
+        .setStyle(TextInputStyle.Short).setRequired(true)
+        .setPlaceholder(`min ₹${process.env.MIN_BET || 1} – max ₹${process.env.MAX_BET || 10000}`)),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('mines').setLabel('Mines (1-19)')
         .setStyle(TextInputStyle.Short).setRequired(true).setValue('3')),

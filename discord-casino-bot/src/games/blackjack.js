@@ -104,6 +104,7 @@ function openModal(i) {
   m.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder().setCustomId('amount').setLabel('Stake ₹')
       .setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder(`min ₹${process.env.MIN_BET || 1} – max ₹${process.env.MAX_BET || 10000}`)
   ));
   return i.showModal(m);
 }

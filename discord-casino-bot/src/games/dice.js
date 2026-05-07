@@ -27,7 +27,8 @@ function openModal(i) {
   const m = new ModalBuilder().setCustomId('dice:bet').setTitle('Dice');
   m.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder()
-      .setCustomId('amount').setLabel('Stake ₹').setStyle(TextInputStyle.Short).setRequired(true)),
+      .setCustomId('amount').setLabel('Stake ₹').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder(`min ₹${process.env.MIN_BET || 1} – max ₹${process.env.MAX_BET || 10000}`)),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('side').setLabel('UNDER or OVER').setStyle(TextInputStyle.Short).setRequired(true).setValue('UNDER')),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
