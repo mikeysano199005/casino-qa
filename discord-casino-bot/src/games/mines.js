@@ -139,7 +139,7 @@ async function startGame(i) {
     await i.editReply(renderBoard(s));
   } catch (e) {
     console.error('[mines startGame]', e);
-    await i.editReply({ content: '⚠️ Something went wrong, please try again.' }).catch(() => {});
+    await i.editReply({ content: `⚠️ Error: ${e.message}` }).catch(() => {});
   }
 }
 
