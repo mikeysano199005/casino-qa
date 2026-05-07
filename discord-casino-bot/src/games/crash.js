@@ -145,7 +145,11 @@ async function tick(channel) {
     if (state.multiplier >= state.crashAt) {
       state.multiplier = state.crashAt;
       state.phase = 'crashed';
-      await renderPanel(channel);
+      // Delete the live panel immediately — result message from settle() replaces it
+      if (state.panelMessageId) {
+        channel.messages.fetch(state.panelMessageId).then(m => m.delete()).catch(() => {});
+        state.panelMessageId = null;
+      }
       await settle(channel);
       setTimeout(() => openRound(channel), 4000);
       return;
