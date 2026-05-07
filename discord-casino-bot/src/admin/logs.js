@@ -40,17 +40,32 @@ export const broadcastBigWin = (client, username, game, payout) =>
   safeSend(client, env.CH_CHAT, { content: `🎉 **${username}** just won **${fmt(payout)}** on ${game}!` });
 
 export async function postWithdrawRequest(client, w) {
-  const e = new EmbedBuilder().setColor(Colors.Orange).setTitle('💸 Withdraw request')
-    .addFields(
-      { name: 'User', value: `<@${w.discord_id}> (${w.username})`, inline: true },
-      { name: 'Amount', value: fmt(BigInt(w.amount)), inline: true },
-      { name: 'UPI', value: w.upi_id || '—', inline: true },
-      { name: 'Bank', value: w.bank_details ? `${w.bank_details.name} / ${w.bank_details.acc} / ${w.bank_details.ifsc}` : '—' },
-      { name: 'ID', value: `\`${w.id}\`` },
+  const isUpi = !!w.upi_id;
+  const b = w.bank_details;
+
+  const fields = [
+    { name: 'User',   value: `<@${w.discord_id}> (${w.username})`, inline: true },
+    { name: 'Amount', value: fmt(BigInt(w.amount)),                 inline: true },
+    { name: 'Method', value: isUpi ? '📱 UPI' : '🏦 Bank Transfer', inline: true },
+  ];
+
+  if (isUpi) {
+    fields.push({ name: 'UPI ID', value: w.upi_id, inline: false });
+  } else if (b) {
+    fields.push(
+      { name: 'Bank Name',       value: b.name  || '—', inline: true },
+      { name: 'Account Number',  value: b.acc   || '—', inline: true },
+      { name: 'IFSC Code',       value: b.ifsc  || '—', inline: true },
+      { name: 'Phone Number',    value: b.phone || '—', inline: true },
     );
+  }
+
+  fields.push({ name: 'Request ID', value: `\`${w.id}\``, inline: false });
+
+  const e = new EmbedBuilder().setColor(Colors.Orange).setTitle('💸 Withdraw Request').addFields(...fields);
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`wd:approve:${w.id}`).setLabel('Approve').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`wd:reject:${w.id}`).setLabel('Reject').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`wd:approve:${w.id}`).setLabel('✅ Approve').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`wd:reject:${w.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger),
   );
   await safeSend(client, env.CH_WITHDRAW_REQUESTS, { embeds: [e], components: [row] });
 }

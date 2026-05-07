@@ -3,7 +3,6 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import axios from 'axios';
-import crypto from 'node:crypto';
 import { q } from '../db/index.js';
 import { applyTx, upsertUser, getWallet, logAudit } from '../repo.js';
 import { toPaise, fmt } from '../util/money.js';
@@ -25,15 +24,18 @@ export function postPanel(channel) {
 export async function handleInteraction(i) {
   if (i.isButton()) {
     const [, action] = i.customId.split(':');
-    if (action === 'balance')   return showBalance(i);
-    if (action === 'deposit')   return depositModal(i);
-    if (action === 'withdraw')  return withdrawModal(i);
-    if (action === 'history')   return showHistory(i);
+    if (action === 'balance')       return showBalance(i);
+    if (action === 'deposit')       return depositModal(i);
+    if (action === 'withdraw')      return withdrawChoice(i);
+    if (action === 'withdraw_upi')  return upiModal(i);
+    if (action === 'withdraw_bank') return bankModal(i);
+    if (action === 'history')       return showHistory(i);
   }
   if (i.isModalSubmit()) {
     const [, action] = i.customId.split(':');
-    if (action === 'deposit')  return createDeposit(i);
-    if (action === 'withdraw') return submitWithdraw(i);
+    if (action === 'deposit') return createDeposit(i);
+    if (action === 'do_upi')  return submitWithdraw(i, 'upi');
+    if (action === 'do_bank') return submitWithdraw(i, 'bank');
   }
 }
 
@@ -58,15 +60,49 @@ function depositModal(i) {
   return i.showModal(m);
 }
 
-function withdrawModal(i) {
-  const m = new ModalBuilder().setCustomId('wallet:withdraw').setTitle('Withdraw');
+// Step 1: ask UPI or Bank
+function withdrawChoice(i) {
+  return i.reply({ ephemeral: true,
+    content: '**How would you like to receive your withdrawal?**',
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('wallet:withdraw_upi').setLabel('📱 UPI Transfer').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('wallet:withdraw_bank').setLabel('🏦 Bank Transfer').setStyle(ButtonStyle.Secondary),
+    )],
+  });
+}
+
+// Step 2a: UPI modal
+function upiModal(i) {
+  const m = new ModalBuilder().setCustomId('wallet:do_upi').setTitle('Withdraw via UPI');
   m.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder()
-      .setCustomId('amount').setLabel('Amount in ₹').setStyle(TextInputStyle.Short).setRequired(true)),
+      .setCustomId('amount').setLabel('Amount in ₹').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 200}`)),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
-      .setCustomId('upi').setLabel('UPI ID (or leave blank)').setStyle(TextInputStyle.Short).setRequired(false)),
+      .setCustomId('upi').setLabel('UPI ID').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder('example@upi')),
+  );
+  return i.showModal(m);
+}
+
+// Step 2b: Bank modal
+function bankModal(i) {
+  const m = new ModalBuilder().setCustomId('wallet:do_bank').setTitle('Withdraw via Bank Transfer');
+  m.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder()
-      .setCustomId('bank').setLabel('Bank: name|acc|ifsc (optional)').setStyle(TextInputStyle.Short).setRequired(false)),
+      .setCustomId('amount').setLabel('Amount in ₹').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 200}`)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder()
+      .setCustomId('bank_name').setLabel('Bank Name').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder('e.g. State Bank of India')),
+    new ActionRowBuilder().addComponents(new TextInputBuilder()
+      .setCustomId('acc').setLabel('Account Number').setStyle(TextInputStyle.Short).setRequired(true)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder()
+      .setCustomId('ifsc').setLabel('IFSC Code').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder('e.g. SBIN0001234')),
+    new ActionRowBuilder().addComponents(new TextInputBuilder()
+      .setCustomId('phone').setLabel('Phone Number').setStyle(TextInputStyle.Short).setRequired(true)
+      .setPlaceholder('10-digit mobile number')),
   );
   return i.showModal(m);
 }
@@ -121,24 +157,20 @@ async function createDeposit(i) {
   }
 }
 
-async function submitWithdraw(i) {
+async function submitWithdraw(i, method) {
+  await i.deferReply({ ephemeral: true });
+
   const amount = Number(i.fields.getTextInputValue('amount'));
-  const upi    = i.fields.getTextInputValue('upi')?.trim() || null;
-  const bank   = i.fields.getTextInputValue('bank')?.trim() || null;
   const min = Number(process.env.MIN_WITHDRAW || 200);
   if (!Number.isFinite(amount) || amount < min)
-    return i.reply({ ephemeral: true, content: `Minimum withdraw ₹${min}.` });
-  if (!upi && !bank)
-    return i.reply({ ephemeral: true, content: 'Provide UPI or bank details.' });
+    return i.editReply({ content: `Minimum withdraw ₹${min}.` });
 
   const u = await upsertUser(i.user.id, i.user.username);
 
   // Cooldown check
-  const { rows: ur } = await q(
-    `SELECT withdraw_cooldown_until FROM users WHERE id=$1`, [u.id]
-  );
+  const { rows: ur } = await q(`SELECT withdraw_cooldown_until FROM users WHERE id=$1`, [u.id]);
   if (ur[0]?.withdraw_cooldown_until && new Date(ur[0].withdraw_cooldown_until) > new Date())
-    return i.reply({ ephemeral: true, content: `Cooldown until <t:${Math.floor(new Date(ur[0].withdraw_cooldown_until).getTime()/1000)}:R>.` });
+    return i.editReply({ content: `Cooldown until <t:${Math.floor(new Date(ur[0].withdraw_cooldown_until).getTime()/1000)}:R>.` });
 
   const stake = toPaise(amount);
 
@@ -147,27 +179,39 @@ async function submitWithdraw(i) {
   const withdrawable = BigInt(w.available) - BigInt(w.locked) - BigInt(w.bonus_balance);
   if (withdrawable < stake) {
     const need = fmt(BigInt(w.wager_pending));
-    return i.reply({ ephemeral: true,
+    return i.editReply({
       content: `🔒 You have **${fmt(BigInt(w.bonus_balance))}** in bonus funds that require **${need}** more wagering before withdrawal.\nWithdrawable now: **${fmt(withdrawable < 0n ? 0n : withdrawable)}**`
     });
   }
+
+  // Build payment details
+  let upiId = null;
   let bankObj = null;
-  if (bank) {
-    const [name, acc, ifsc] = bank.split('|').map(s => s?.trim());
-    bankObj = { name, acc, ifsc };
+
+  if (method === 'upi') {
+    upiId = i.fields.getTextInputValue('upi').trim();
+    if (!upiId) return i.editReply({ content: 'UPI ID is required.' });
+  } else {
+    const name  = i.fields.getTextInputValue('bank_name').trim();
+    const acc   = i.fields.getTextInputValue('acc').trim();
+    const ifsc  = i.fields.getTextInputValue('ifsc').trim().toUpperCase();
+    const phone = i.fields.getTextInputValue('phone').trim();
+    if (!name || !acc || !ifsc || !phone) return i.editReply({ content: 'All bank fields are required.' });
+    bankObj = { name, acc, ifsc, phone };
   }
 
-  // lock funds
+  // Lock funds
   try {
     await applyTx({ userId: u.id, type: 'withdraw', amount: 0n, lockDelta: stake,
-      ref: null, meta: { stage: 'lock', upi, bank: bankObj } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient available balance.' }); }
+      ref: null, meta: { stage: 'lock', upi: upiId, bank: bankObj } });
+  } catch { return i.editReply({ content: '💸 Insufficient available balance.' }); }
 
   const { rows } = await q(
     `INSERT INTO withdrawals(user_id,amount,upi_id,bank_details) VALUES($1,$2,$3,$4) RETURNING *`,
-    [u.id, stake.toString(), upi, bankObj]
+    [u.id, stake.toString(), upiId, bankObj]
   );
-  // set cooldown
+
+  // Set cooldown
   const cd = Number(process.env.WITHDRAW_COOLDOWN_HOURS || 24);
   await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 || ' hours')::interval WHERE id=$2`,
     [String(cd), u.id]);
@@ -175,8 +219,7 @@ async function submitWithdraw(i) {
   await postWithdrawRequest(i.client, { ...rows[0], discord_id: i.user.id, username: i.user.username });
   await logAudit(i.user.id, 'withdraw_requested', rows[0].id, null, { amount: stake.toString() });
 
-  await i.reply({ ephemeral: true,
-    content: `✅ Withdraw request **${fmt(stake)}** sent for approval. You'll be notified.` });
+  await i.editReply({ content: `✅ Withdraw request **${fmt(stake)}** sent for approval. You'll be notified once it's processed.` });
 }
 
 async function showHistory(i) {
