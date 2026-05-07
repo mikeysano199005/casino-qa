@@ -85,12 +85,10 @@ async function renderPanel(channel) {
 
 async function tick(channel) {
   if (!state) return;
-  // settle current
   const settled = state;
-  await openRound();              // open next immediately
-  await renderPanel(channel);     // refresh panel for new round
+  state = null; // lock out new bets during settlement
 
-  // settle previous
+  // 1. Settle the round
   const preset = settled.round.preset_mode || await getPreset('colour');
   const rng = rngFloat(settled.serverSeed, settled.round.client_seed, 0);
   const winner = pickOutcome(OPTIONS, settled.pool, preset, rng);
@@ -107,9 +105,6 @@ async function tick(channel) {
       lockDelta: -b.stake, ref: settled.round.id,
       meta: { game: 'colour', selection: b.key, result: winner, payout: payout.toString() }
     });
-    if (!win) {
-      // bet was already debited at place-time; nothing more
-    }
     await q(
       `UPDATE bets SET payout=$1, result=$2, settled_at=now() WHERE id=$3`,
       [payout.toString(), win ? 'win' : 'loss', b.betId]
@@ -126,13 +121,17 @@ async function tick(channel) {
   if (lastResults.length > 5) lastResults.pop();
   logRound(channel.client, 'colour', settled.round.id, { winner, pool: pool.toString(), pnl: (pool - paid).toString(), preset });
 
-  // post result
+  // 2. Post result before starting next round
   await channel.send({
     embeds: [new EmbedBuilder()
       .setColor(Colors.Gold)
       .setTitle(`🎨 Result: ${winOpt.color} ${winner.toUpperCase()}`)
       .setDescription(`Pool: **${fmt(pool)}** • Paid: **${fmt(paid)}**\nReveal seed: \`${settled.serverSeed.slice(0, 24)}…\``)]
   });
+
+  // 3. Open next round after result is posted
+  await openRound();
+  await renderPanel(channel);
 }
 
 // Interaction routing ──────────────────────────────────────────────
