@@ -100,6 +100,12 @@ async function tick(channel) {
   const settled = state;
   state = null; // lock out new bets during settlement
 
+  // Delete the closed round panel immediately
+  if (settled.panelMessageId) {
+    channel.messages.fetch(settled.panelMessageId).then(m => m.delete()).catch(() => {});
+    settled.panelMessageId = null;
+  }
+
   // 1. Settle the round
   const preset = settled.round.preset_mode || await getPreset('colour');
   const rng = rngFloat(settled.serverSeed, settled.round.client_seed, 0);
