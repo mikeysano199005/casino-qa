@@ -15,6 +15,7 @@ import * as colour  from './games/colour.js';
 import * as crash   from './games/crash.js';
 import { handleAdminInteraction, postAdminPanel } from './admin/adminPanel.js';
 import { botHeartbeat } from './admin/logs.js';
+import { startLiveDashboard } from './admin/liveDashboard.js';
 import { startWebhookServer } from './cashfree.js';
 import { checkAndSendWelcome } from './util/welcome.js';
 
@@ -108,6 +109,9 @@ client.once(Events.ClientReady, async () => {
   if (ch('CH_CRASH'))  startCrashLoop(client,  ch('CH_CRASH')).catch(console.error);
 
   await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
+
+  if (process.env.CH_LIVE_DASHBOARD)
+    startLiveDashboard(client, process.env.CH_LIVE_DASHBOARD).catch(console.error);
 
   // heartbeat
   setInterval(() => {
