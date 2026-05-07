@@ -90,53 +90,57 @@ function openModal(i) {
 
 async function startGame(i) {
   await i.deferReply({ ephemeral: true });
-
-  const amount = Number(i.fields.getTextInputValue('amount'));
-  const mines  = Math.min(24, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
-  const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
-  if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
-
-  let u;
-  try { u = await requireActive(i.user.id, i.user.username); }
-  catch (e) {
-    if (e.code === 'NOT_FOUND') return i.editReply({ content: '⚠️ No account found — interact with the bot in another channel first.' });
-    return i.editReply({ content: '🚫 Your account is suspended.' });
-  }
-
-  // Abort any existing session (refund orphaned stake)
-  const existing = await getSession(i.user.id).catch(() => null);
-  if (existing) {
-    try {
-      await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
-        ref: null, meta: { game: 'mines', result: 'abandoned' } });
-      await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
-    } catch (e) { console.warn('[mines] abandon failed:', e.message); }
-    await clearSession(existing.userId).catch(() => {});
-  }
-
-  const stake = toPaise(amount);
-  const seed = newServerSeed();
-  const preset = await getPreset('mines');
-  const bombs = new Set();
-  let n = 0;
-  while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 25));
-
   try {
-    await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
-      ref: null, meta: { game: 'mines', mines } });
-  } catch { return i.editReply({ content: '💸 Insufficient.' }); }
+    const amount = Number(i.fields.getTextInputValue('amount'));
+    const mines  = Math.min(24, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
+    const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
+    if (!Number.isFinite(amount) || amount < min || amount > max)
+      return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
 
-  const { rows: br } = await q(
-    `INSERT INTO bets(user_id,game,stake,selection,result)
-     VALUES($1,'mines',$2,$3,'pending') RETURNING id`,
-    [u.id, stake.toString(), { mines }]
-  );
-  const s = { userId: u.id, username: i.user.username, stake, mines, bombs,
-    revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
-  await putSession(u.id, i.user.id, s);
-  logBet(i.client, { user: i.user.username, game: 'mines', stake: stake.toString() });
-  await i.editReply(renderBoard(s));
+    let u;
+    try { u = await requireActive(i.user.id, i.user.username); }
+    catch (e) {
+      if (e.code === 'NOT_FOUND') return i.editReply({ content: '⚠️ No account found — interact with the bot in another channel first.' });
+      return i.editReply({ content: '🚫 Your account is suspended.' });
+    }
+
+    // Abort any existing session (refund orphaned stake)
+    const existing = await getSession(i.user.id).catch(() => null);
+    if (existing) {
+      try {
+        await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
+          ref: null, meta: { game: 'mines', result: 'abandoned' } });
+        await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
+      } catch (e) { console.warn('[mines] abandon failed:', e.message); }
+      await clearSession(existing.userId).catch(() => {});
+    }
+
+    const stake = toPaise(amount);
+    const seed = newServerSeed();
+    const preset = await getPreset('mines');
+    const bombs = new Set();
+    let n = 0;
+    while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 25));
+
+    try {
+      await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
+        ref: null, meta: { game: 'mines', mines } });
+    } catch { return i.editReply({ content: '💸 Insufficient balance.' }); }
+
+    const { rows: br } = await q(
+      `INSERT INTO bets(user_id,game,stake,selection,result)
+       VALUES($1,'mines',$2,$3,'pending') RETURNING id`,
+      [u.id, stake.toString(), { mines }]
+    );
+    const s = { userId: u.id, username: i.user.username, stake, mines, bombs,
+      revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
+    await putSession(u.id, i.user.id, s);
+    logBet(i.client, { user: i.user.username, game: 'mines', stake: stake.toString() });
+    await i.editReply(renderBoard(s));
+  } catch (e) {
+    console.error('[mines startGame]', e);
+    await i.editReply({ content: '⚠️ Something went wrong, please try again.' }).catch(() => {});
+  }
 }
 
 function payoutMultiplier(safeRevealed, mines) {

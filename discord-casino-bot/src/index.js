@@ -51,9 +51,12 @@ client.on(Events.InteractionCreate, async (i) => {
     checkAndSendWelcome(i.client, i.user).catch(() => {});
   } catch (e) {
     console.error('[interaction]', e);
-    if (i.isRepliable() && !i.replied) {
-      await i.reply({ ephemeral: true, content: '⚠️ Something went wrong.' }).catch(()=>{});
-    }
+    try {
+      if (i.isRepliable()) {
+        if (!i.replied && !i.deferred) await i.reply({ ephemeral: true, content: '⚠️ Something went wrong.' });
+        else if (i.deferred && !i.replied)  await i.editReply({ content: '⚠️ Something went wrong.' });
+      }
+    } catch {}
   }
 });
 
