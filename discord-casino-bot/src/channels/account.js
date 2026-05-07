@@ -72,7 +72,7 @@ async function claimReward(i, u) {
     `SELECT 1 FROM transactions WHERE user_id=$1 AND type='bonus'
       AND meta->>'kind'='daily' AND created_at > now() - interval '24 hours' LIMIT 1`, [u.id]);
   if (rows.length) return i.reply({ ephemeral: true, content: '⏳ Already claimed in the last 24h.' });
-  const reward = 1000n; // ₹10
+  const reward = 100n; // ₹1
   await applyTx({ userId: u.id, type: 'bonus', amount: reward, ref: null, meta: { kind: 'daily' } });
   return i.reply({ ephemeral: true, content: `🎁 +${fmt(reward)} added!` });
 }
