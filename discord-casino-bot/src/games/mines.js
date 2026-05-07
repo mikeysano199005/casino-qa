@@ -1,0 +1,215 @@
+import {
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder,
+  TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
+} from 'discord.js';
+import { q } from '../db/index.js';
+import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
+import { newServerSeed, rngFloat } from '../util/fairness.js';
+import { toPaise, fmt } from '../util/money.js';
+import { logBet, broadcastBigWin } from '../admin/logs.js';
+
+// ─── Session helpers (DB-backed, survives restarts) ──────────────────
+
+function sessionToData(s) {
+  return {
+    userId:     s.userId,
+    username:   s.username,
+    stake:      s.stake.toString(),
+    mines:      s.mines,
+    bombs:      [...s.bombs],
+    revealed:   [...s.revealed],
+    seed:       s.seed,
+    preset:     s.preset,
+    betId:      s.betId,
+    multiplier: s.multiplier,
+  };
+}
+
+function dataToSession(d) {
+  return {
+    userId:     d.userId,
+    username:   d.username,
+    stake:      BigInt(d.stake),
+    mines:      d.mines,
+    bombs:      new Set(d.bombs),
+    revealed:   new Set(d.revealed),
+    seed:       d.seed,
+    preset:     d.preset,
+    betId:      d.betId,
+    multiplier: d.multiplier,
+  };
+}
+
+async function getSession(discordId) {
+  const row = await loadSession(discordId, 'mines');
+  return row ? dataToSession(row.data) : null;
+}
+
+async function putSession(userId, discordId, s) {
+  await saveSession(userId, 'mines', sessionToData(s), s.betId);
+}
+
+async function clearSession(userId) {
+  await deleteSession(userId, 'mines');
+}
+
+// ─── Panel ───────────────────────────────────────────────────────────
+
+export function postPanel(channel) {
+  return channel.send({
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('💣 Mines')
+      .setDescription('Pick safe tiles, cash out anytime. Hitting a mine = lose your stake.')],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('mines:start').setLabel('New Game').setStyle(ButtonStyle.Success),
+    )],
+  });
+}
+
+export async function handleInteraction(i) {
+  if (i.isButton()) {
+    const [, action, ...rest] = i.customId.split(':');
+    if (action === 'start')   return openModal(i);
+    if (action === 'tile')    return revealTile(i, +rest[0], +rest[1]);
+    if (action === 'cashout') return cashOut(i);
+  }
+  if (i.isModalSubmit()) return startGame(i);
+}
+
+function openModal(i) {
+  const m = new ModalBuilder().setCustomId('mines:setup').setTitle('Mines setup');
+  m.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('amount').setLabel('Stake ₹')
+        .setStyle(TextInputStyle.Short).setRequired(true)),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('mines').setLabel('Mines (1-24)')
+        .setStyle(TextInputStyle.Short).setRequired(true).setValue('3')),
+  );
+  return i.showModal(m);
+}
+
+async function startGame(i) {
+  const amount = Number(i.fields.getTextInputValue('amount'));
+  const mines  = Math.min(24, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
+  const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
+  if (!Number.isFinite(amount) || amount < min || amount > max)
+    return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
+
+  let u;
+  try { u = await requireActive(i.user.id, i.user.username); }
+  catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+
+  // Abort any existing session (refund orphaned stake)
+  const existing = await getSession(i.user.id);
+  if (existing) {
+    await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
+      ref: null, meta: { game: 'mines', result: 'abandoned' } });
+    await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
+    await clearSession(existing.userId);
+  }
+
+  const stake = toPaise(amount);
+  const seed = newServerSeed();
+  const preset = await getPreset('mines');
+  const bombs = new Set();
+  let n = 0;
+  while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 25));
+
+  try {
+    await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
+      ref: null, meta: { game: 'mines', mines } });
+  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
+
+  const { rows: br } = await q(
+    `INSERT INTO bets(user_id,game,stake,selection,result)
+     VALUES($1,'mines',$2,$3,'pending') RETURNING id`,
+    [u.id, stake.toString(), { mines }]
+  );
+  const s = { userId: u.id, username: i.user.username, stake, mines, bombs,
+    revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
+  await putSession(u.id, i.user.id, s);
+  logBet(i.client, { user: i.user.username, game: 'mines', stake: stake.toString() });
+  await i.reply({ ephemeral: true, ...renderBoard(s) });
+}
+
+function payoutMultiplier(safeRevealed, mines) {
+  return +Math.pow(25 / (25 - mines), safeRevealed) * 0.97;
+}
+
+function renderBoard(s, revealAll = false) {
+  const rows = [];
+  for (let r = 0; r < 5; r++) {
+    const row = new ActionRowBuilder();
+    for (let c = 0; c < 5; c++) {
+      const idx = r * 5 + c;
+      const isBomb = s.bombs.has(idx);
+      const isOpen = s.revealed.has(idx) || revealAll;
+      let label = '⬜', style = ButtonStyle.Secondary;
+      if (isOpen) {
+        if (isBomb) { label = '💣'; style = ButtonStyle.Danger; }
+        else        { label = '💎'; style = ButtonStyle.Success; }
+      }
+      row.addComponents(
+        new ButtonBuilder().setCustomId(`mines:tile:${r}:${c}`).setLabel(label)
+          .setStyle(style).setDisabled(isOpen || revealAll)
+      );
+    }
+    rows.push(row);
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('mines:cashout')
+      .setLabel(`Cash Out — ${fmt(BigInt(Math.floor(Number(s.stake) * s.multiplier)))}`)
+      .setStyle(ButtonStyle.Primary).setDisabled(revealAll || s.revealed.size === 0),
+  ));
+  return {
+    embeds: [new EmbedBuilder().setColor(Colors.Gold)
+      .setTitle('💣 Mines')
+      .setDescription(`Stake: ${fmt(s.stake)} • Mines: ${s.mines} • Multiplier: **${s.multiplier.toFixed(2)}×**`)],
+    components: rows,
+  };
+}
+
+async function revealTile(i, r, c) {
+  const s = await getSession(i.user.id);
+  if (!s) return i.reply({ ephemeral: true, content: 'No active game. Click New Game.' });
+  const idx = r * 5 + c;
+
+  if (s.preset === 'low' && s.bombs.has(idx) && s.revealed.size === 0) {
+    const safeIdx = [...Array(25).keys()].find(k => !s.bombs.has(k));
+    s.bombs.delete(idx); s.bombs.add(safeIdx);
+  } else if (s.preset === 'high' && !s.bombs.has(idx) && s.revealed.size === 0) {
+    if (rngFloat(s.seed, 'biashigh', 0) < 0.6) {
+      const removeBomb = [...s.bombs][0];
+      s.bombs.delete(removeBomb); s.bombs.add(idx);
+    }
+  }
+
+  s.revealed.add(idx);
+  if (s.bombs.has(idx)) {
+    await applyTx({ userId: s.userId, type: 'bet', amount: 0n, lockDelta: -s.stake,
+      ref: null, meta: { game: 'mines', result: 'bomb' } });
+    await q(`UPDATE bets SET payout=0, result='loss', settled_at=now() WHERE id=$1`, [s.betId]);
+    await clearSession(s.userId);
+    return i.update(renderBoard(s, true));
+  }
+  s.multiplier = payoutMultiplier(s.revealed.size, s.mines);
+  await putSession(s.userId, i.user.id, s);
+  await i.update(renderBoard(s));
+}
+
+async function cashOut(i) {
+  const s = await getSession(i.user.id);
+  if (!s) return i.reply({ ephemeral: true, content: 'No active game.' });
+  const payout = BigInt(Math.floor(Number(s.stake) * s.multiplier));
+  await applyTx({ userId: s.userId, type: 'win', amount: payout, lockDelta: -s.stake,
+    ref: null, meta: { game: 'mines', multiplier: s.multiplier } });
+  await q(`UPDATE bets SET payout=$1, result='win', settled_at=now() WHERE id=$2`,
+    [payout.toString(), s.betId]);
+  if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
+    broadcastBigWin(i.client, i.user.username, 'Mines', payout).catch(() => {});
+  await clearSession(s.userId);
+  await i.update({
+    ...renderBoard({ ...s, revealed: new Set(Array.from({ length: 25 }, (_, k) => k)) }, true),
+    content: `💰 Cashed out: ${fmt(payout)} (${s.multiplier.toFixed(2)}×)`,
+  });
+}

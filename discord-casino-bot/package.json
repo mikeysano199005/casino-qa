@@ -1,0 +1,22 @@
+{
+  "name": "discord-casino-bot",
+  "version": "1.0.0",
+  "description": "Production-ready Discord casino: 6 games, wallet, Cashfree deposits, manual UPI withdrawals, admin server, presets, anti-fraud, full logging.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/db/migrate.js",
+    "seed:admin": "node src/db/seedAdmin.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "pg": "^8.13.1",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8",
+    "express": "^4.21.1",
+    "axios": "^1.7.7"
+  }
+}
