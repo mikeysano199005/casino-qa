@@ -51,11 +51,12 @@ client.on(Events.InteractionCreate, async (i) => {
     // Fire-and-forget: send welcome DM on first-ever interaction
     checkAndSendWelcome(i.client, i.user).catch(() => {});
   } catch (e) {
-    console.error('[interaction]', e);
+    console.error('[interaction error]', i.customId, e.message, e.stack);
     try {
       if (i.isRepliable()) {
-        if (!i.replied && !i.deferred) await i.reply({ ephemeral: true, content: '⚠️ Something went wrong.' });
-        else if (i.deferred && !i.replied)  await i.editReply({ content: '⚠️ Something went wrong.' });
+        const msg = `⚠️ Something went wrong. (${e.message?.slice(0, 100) ?? 'unknown'})`;
+        if (!i.replied && !i.deferred) await i.reply({ ephemeral: true, content: msg });
+        else if (i.deferred && !i.replied) await i.editReply({ content: msg });
       }
     } catch {}
   }

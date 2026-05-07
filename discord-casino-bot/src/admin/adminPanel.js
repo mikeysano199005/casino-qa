@@ -223,12 +223,13 @@ function openPromoModal(i) {
 }
 
 async function createPromo(i) {
-  await i.deferReply({ ephemeral: true });
   try {
-    const code     = i.fields.getTextInputValue('code').trim().toUpperCase();
-    const amount   = Number(i.fields.getTextInputValue('amount'));
-    const wager    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager')) || 5));
-    const maxuses  = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('maxuses')) || 100));
+    await i.deferReply({ ephemeral: true });
+
+    const code       = i.fields.getTextInputValue('code').trim().toUpperCase();
+    const amount     = Number(i.fields.getTextInputValue('amount'));
+    const wager      = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager')) || 5));
+    const maxuses    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('maxuses')) || 100));
     const expiryDays = i.fields.getTextInputValue('expiry')?.trim();
     const expiresAt  = expiryDays ? new Date(Date.now() + Number(expiryDays) * 86400_000) : null;
 
@@ -236,25 +237,28 @@ async function createPromo(i) {
       return i.editReply({ content: 'Invalid code or amount.' });
 
     const bonus = BigInt(Math.round(amount * 100));
-    try {
-      await q(
-        `INSERT INTO promo_codes(code, bonus_amount, wager_mult, max_uses, expires_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [code, String(bonus), Number(wager), Number(maxuses), expiresAt, String(i.user.id)]
-      );
-    } catch (e) {
-      if (e.message.includes('unique')) return i.editReply({ content: `Code \`${code}\` already exists.` });
-      console.error('[createPromo db]', e.message);
-      return i.editReply({ content: `❌ Database error: ${e.message.slice(0, 200)}` });
-    }
+
+    await q(
+      `INSERT INTO promo_codes(code, bonus_amount, wager_mult, max_uses, expires_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [code, String(bonus), Number(wager), Number(maxuses), expiresAt, String(i.user.id)]
+    ).catch(e => {
+      if (e.message.includes('unique')) throw Object.assign(new Error(`Code \`${code}\` already exists.`), { friendly: true });
+      throw e;
+    });
 
     await logAudit(i.user.id, 'promo_created', code, null, { bonus: String(bonus), wager, maxuses }).catch(() => {});
+
     return i.editReply({
       content: `✅ Promo \`${code}\` created — **${fmt(bonus)}** bonus • ${wager}× wager • ${maxuses} uses${expiresAt ? ` • expires <t:${Math.floor(expiresAt.getTime()/1000)}:R>` : ''}`
     });
   } catch (e) {
-    console.error('[createPromo]', e.message);
-    return i.editReply({ content: `❌ Error: ${e.message.slice(0, 200)}` });
+    console.error('[createPromo]', e);
+    const msg = e.friendly ? e.message : `❌ Error: ${e.message?.slice(0, 200) ?? 'unknown'}`;
+    try {
+      if (i.deferred) await i.editReply({ content: msg });
+      else await i.reply({ ephemeral: true, content: msg });
+    } catch {}
   }
 }
 
