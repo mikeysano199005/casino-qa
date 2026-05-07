@@ -17,19 +17,28 @@ export function startWebhookServer(client) {
     const sid = String(req.query.session_id || '').replace(/[^A-Za-z0-9_\-]/g, '');
     if (!sid) return res.status(400).send('Bad request');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8">
+    res.end(`<!DOCTYPE html>
+<html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Casino Deposit</title>
-<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-<style>body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px}</style>
+<style>body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px;margin:0}</style>
 </head><body>
-<h2>Redirecting to payment…</h2>
+<h2>Redirecting to payment...</h2>
+<p>Please wait...</p>
+<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
 <script>
-Cashfree({ mode: "${CF_MODE}" }).checkout({
-  paymentSessionId: "${sid}",
-  redirectTarget: "_self"
-});
-</script></body></html>`);
+(function() {
+  var sid = "${sid}";
+  var mode = "${CF_MODE}";
+  try {
+    var cf = Cashfree({ mode: mode });
+    cf.checkout({ paymentSessionId: sid, redirectTarget: "_self" });
+  } catch(e) {
+    document.body.innerHTML = "<h2>Payment Error</h2><p>" + e.message + "</p><p>Please try again in Discord.</p>";
+  }
+})();
+</script>
+</body></html>`);
   });
 
   app.get('/payment-done', (_req, res) => {
