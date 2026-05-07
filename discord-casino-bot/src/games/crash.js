@@ -11,6 +11,17 @@ import { logBet, logRound, broadcastBigWin } from '../admin/logs.js';
 
 const TICK_MS = 1500;
 let state = null;
+const resultMsgIds = [];
+
+async function pushResult(channel, embed) {
+  const msg = await channel.send({ embeds: [embed] }).catch(() => null);
+  if (!msg) return;
+  resultMsgIds.push(msg.id);
+  if (resultMsgIds.length > 3) {
+    const old = resultMsgIds.shift();
+    channel.messages.fetch(old).then(m => m.delete()).catch(() => {});
+  }
+}
 
 export async function startCrashLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -113,12 +124,9 @@ async function settle(channel) {
     [state.serverSeed, pool.toString(), (pool - paid).toString(), state.round.id]
   );
   logRound(channel.client, 'crash', state.round.id, { crashAt: state.crashAt, pool: pool.toString(), pnl: (pool - paid).toString() });
-  // Reveal server seed for provably-fair verification
-  await channel.send({
-    embeds: [new EmbedBuilder().setColor(Colors.Red)
-      .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`)
-      .setDescription(`Seed reveal: \`${state.serverSeed}\`\nHash: \`${state.round.server_seed_hash}\`\nVerify: HMAC-SHA256(seed, clientSeed:0)`)],
-  }).catch(() => {});
+  await pushResult(channel, new EmbedBuilder().setColor(Colors.Red)
+    .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`)
+    .setDescription(`Seed reveal: \`${state.serverSeed}\`\nHash: \`${state.round.server_seed_hash}\`\nVerify: HMAC-SHA256(seed, clientSeed:0)`));
 }
 
 export async function handleInteraction(interaction) {

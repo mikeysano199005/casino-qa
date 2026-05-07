@@ -17,8 +17,18 @@ const OPTIONS = [
   { key: 'violet', payoutMultiplier: 8,  naturalProbability: 0.10, color: '🟣' },
 ];
 
-let state = null;        // current round
-const lastResults = [];  // last 5
+let state = null;
+const lastResults = [];
+const resultMsgIds = []; // keep only last 3 result messages
+
+async function pushResult(channel, embed) {
+  const msg = await channel.send({ embeds: [embed] });
+  resultMsgIds.push(msg.id);
+  if (resultMsgIds.length > 3) {
+    const old = resultMsgIds.shift();
+    channel.messages.fetch(old).then(m => m.delete()).catch(() => {});
+  }
+}
 
 export async function startColourLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -121,13 +131,11 @@ async function tick(channel) {
   if (lastResults.length > 5) lastResults.pop();
   logRound(channel.client, 'colour', settled.round.id, { winner, pool: pool.toString(), pnl: (pool - paid).toString(), preset });
 
-  // 2. Post result before starting next round
-  await channel.send({
-    embeds: [new EmbedBuilder()
-      .setColor(Colors.Gold)
-      .setTitle(`🎨 Result: ${winOpt.color} ${winner.toUpperCase()}`)
-      .setDescription(`Pool: **${fmt(pool)}** • Paid: **${fmt(paid)}**\nReveal seed: \`${settled.serverSeed.slice(0, 24)}…\``)]
-  });
+  // 2. Post result before starting next round (auto-removes oldest if > 3)
+  await pushResult(channel, new EmbedBuilder()
+    .setColor(Colors.Gold)
+    .setTitle(`🎨 Result: ${winOpt.color} ${winner.toUpperCase()}`)
+    .setDescription(`Pool: **${fmt(pool)}** • Paid: **${fmt(paid)}**\nReveal seed: \`${settled.serverSeed.slice(0, 24)}…\``));
 
   // 3. Open next round after result is posted
   await openRound();
