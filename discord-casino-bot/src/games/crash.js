@@ -19,7 +19,7 @@ async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] }).catch(() => null);
   if (!msg) return;
   resultMsgIds.push(msg.id);
-  if (resultMsgIds.length > 3) {
+  if (resultMsgIds.length > 15) {
     const old = resultMsgIds.shift();
     channel.messages.fetch(old).then(m => m.delete()).catch(() => {});
   }

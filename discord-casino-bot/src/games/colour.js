@@ -24,7 +24,7 @@ const resultMsgIds = []; // keep only last 3 result messages
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] });
   resultMsgIds.push(msg.id);
-  if (resultMsgIds.length > 3) {
+  if (resultMsgIds.length > 15) {
     const old = resultMsgIds.shift();
     channel.messages.fetch(old).then(m => m.delete()).catch(() => {});
   }
@@ -75,7 +75,7 @@ async function renderPanel(channel) {
       { name: '🟢 Green (2×)',  value: fmt(state.pool.green),  inline: true },
       { name: '🔴 Red (2×)',    value: fmt(state.pool.red),    inline: true },
       { name: '🟣 Violet (8×)', value: fmt(state.pool.violet), inline: true },
-      { name: 'Last 5',
+      { name: 'Last 15',
         value: lastResults.length
           ? lastResults.map(r => OPTIONS.find(o => o.key === r).color).join(' ')
           : '—' },
@@ -130,7 +130,7 @@ async function tick(channel) {
     [settled.serverSeed, { winner }, pool.toString(), (pool - paid).toString(), settled.round.id]
   );
   lastResults.unshift(winner);
-  if (lastResults.length > 5) lastResults.pop();
+  if (lastResults.length > 15) lastResults.pop();
   logRound(channel.client, 'colour', settled.round.id, { winner, pool: pool.toString(), pnl: (pool - paid).toString(), preset });
 
   // 2. Post result before starting next round (auto-removes oldest if > 3)
