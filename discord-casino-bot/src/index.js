@@ -88,17 +88,15 @@ client.once(Events.ClientReady, async () => {
   await safePanel(process.env.CH_ACCOUNT, account.postPanel);
   await safePanel(process.env.CH_SUPPORT, support.postPanel);
 
-  // game panels live inside #play channel (or you can use sub-channels)
-  await safePanel(process.env.CH_PLAY, mines.postPanel);
-  await safePanel(process.env.CH_PLAY, dice.postPanel);
-  await safePanel(process.env.CH_PLAY, bj.postPanel);
-  await safePanel(process.env.CH_PLAY, slots.postPanel);
+  // Each game gets its own channel; falls back to CH_PLAY if not set
+  const ch = (key) => process.env[key] || process.env.CH_PLAY;
+  await safePanel(ch('CH_MINES'),     mines.postPanel);
+  await safePanel(ch('CH_DICE'),      dice.postPanel);
+  await safePanel(ch('CH_BLACKJACK'), bj.postPanel);
+  await safePanel(ch('CH_SLOTS'),     slots.postPanel);
 
-  // round-based games run their own loops in their channel (use #play for both)
-  if (process.env.CH_PLAY) {
-    startColourLoop(client, process.env.CH_PLAY).catch(console.error);
-    startCrashLoop(client,  process.env.CH_PLAY).catch(console.error);
-  }
+  if (ch('CH_COLOUR')) startColourLoop(client, ch('CH_COLOUR')).catch(console.error);
+  if (ch('CH_CRASH'))  startCrashLoop(client,  ch('CH_CRASH')).catch(console.error);
 
   await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
 
