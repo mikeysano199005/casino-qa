@@ -210,7 +210,7 @@ function openPromoModal(i) {
       .setCustomId('amount').setLabel('Bonus amount in ₹')
       .setStyle(TextInputStyle.Short).setRequired(true)),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
-      .setCustomId('wager').setLabel('Wagering multiplier (e.g. 5 = 5× bonus amount)')
+      .setCustomId('wager').setLabel('Wager multiplier (e.g. 5 = 5× bonus)')
       .setStyle(TextInputStyle.Short).setRequired(true).setValue('5')),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('maxuses').setLabel('Max redemptions (0 = unlimited)')
