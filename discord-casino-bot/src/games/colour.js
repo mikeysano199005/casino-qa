@@ -23,11 +23,11 @@ const resultMsgIds = []; // keep only last 3 result messages
 
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] });
-  resultMsgIds.push(msg.id);
-  if (resultMsgIds.length > 15) {
+  if (resultMsgIds.length > 0) {
     const old = resultMsgIds.shift();
     channel.messages.fetch(old).then(m => m.delete()).catch(() => {});
   }
+  resultMsgIds.push(msg.id);
 }
 
 export async function startColourLoop(client, channelId) {
