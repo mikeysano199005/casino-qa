@@ -2,6 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "npm run migrate && echo '[railway] migrations done, starting app...' && node src/index.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
