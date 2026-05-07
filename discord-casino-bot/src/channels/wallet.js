@@ -79,45 +79,45 @@ async function createDeposit(i) {
     return i.reply({ ephemeral: true, content: `Deposit must be between ₹${min} and ₹${max}.` });
 
   const u = await upsertUser(i.user.id, i.user.username);
-  const orderId = `cf_${u.id.slice(0, 8)}_${Date.now()}`;
+  const linkId = `cf_${u.id.slice(0, 8)}_${Date.now()}`;
   const env = process.env.CASHFREE_ENV === 'prod' ? 'api.cashfree.com' : 'sandbox.cashfree.com';
+  const headers = {
+    'x-api-version': '2023-08-01',
+    'x-client-id':   process.env.CASHFREE_APP_ID,
+    'x-client-secret': process.env.CASHFREE_SECRET_KEY,
+    'Content-Type': 'application/json',
+  };
 
   try {
-    const res = await axios.post(`https://${env}/pg/orders`, {
-      order_id: orderId,
-      order_amount: amount,
-      order_currency: 'INR',
+    const res = await axios.post(`https://${env}/pg/links`, {
+      link_id: linkId,
+      link_amount: amount,
+      link_currency: 'INR',
+      link_purpose: 'Casino Deposit',
       customer_details: {
-        customer_id: u.id,
+        customer_phone: '9999999999',
         customer_name: i.user.username || 'player',
         customer_email: `${i.user.id}@discord.local`,
-        customer_phone: '9999999999',
       },
-      order_meta: {
-        return_url: `${process.env.CASHFREE_RETURN_URL}?order_id=${orderId}`,
+      link_partial_payments: false,
+      link_meta: {
+        return_url: process.env.CASHFREE_RETURN_URL || `${process.env.PUBLIC_BASE_URL}/`,
         notify_url: `${process.env.PUBLIC_BASE_URL}/cashfree/webhook`,
       },
-    }, {
-      headers: {
-        'x-api-version': '2023-08-01',
-        'x-client-id':   process.env.CASHFREE_APP_ID,
-        'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-        'Content-Type': 'application/json',
-      },
-    });
-    const base = env === 'sandbox.cashfree.com' ? 'https://payments-test.cashfree.com' : 'https://payments.cashfree.com';
-    const link = res.data.payment_link || `${base}/order/#${res.data.payment_session_id}`;
+    }, { headers });
+
+    const link = res.data.link_url;
     await q(
       `INSERT INTO deposits(user_id,cashfree_order_id,amount,status) VALUES($1,$2,$3,'created')`,
-      [u.id, orderId, toPaise(amount).toString()]
+      [u.id, linkId, toPaise(amount).toString()]
     );
     await i.reply({ ephemeral: true,
       embeds: [new EmbedBuilder().setColor(Colors.Green).setTitle('💳 Deposit')
         .setDescription(`[Pay ₹${amount} via Cashfree](${link})\n\nWallet credits automatically after payment.`)]
     });
   } catch (e) {
-    logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: e.response?.data || e.message });
-    await i.reply({ ephemeral: true, content: '⚠️ Could not create order, try again later.' });
+    logPaymentError(i.client, { stage: 'create_link', user: i.user.username, error: e.response?.data || e.message });
+    await i.reply({ ephemeral: true, content: '⚠️ Could not create payment link, try again later.' });
   }
 }
 

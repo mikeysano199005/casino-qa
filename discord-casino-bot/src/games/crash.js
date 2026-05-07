@@ -28,6 +28,9 @@ async function pushResult(channel, embed) {
 export async function startCrashLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[crash] no channel');
+  // Delete old bot messages so stale buttons don't persist after restart
+  const old = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (old) for (const m of old.filter(m => m.author.id === client.user.id).values()) await m.delete().catch(() => {});
   await openRound(channel);
   setInterval(() => tick(channel).catch(e => console.error('[crash]', e)), TICK_MS);
 }
@@ -70,11 +73,10 @@ async function renderPanel(channel) {
 
   let embed, bettingOpen, cashoutOpen;
   if (phase === 'betting') {
-    const secsLeft = Math.max(0, Math.ceil((bettingEndsAt - Date.now()) / 1000));
     embed = new EmbedBuilder()
       .setColor(Colors.Blue)
       .setTitle('🚀 Crash — Betting Open!')
-      .setDescription(`Place your bets! Round launches in **${secsLeft}s**`)
+      .setDescription(`Place your bets! Round launches <t:${Math.floor(bettingEndsAt / 1000)}:R>`)
       .addFields(
         { name: 'Bets placed', value: String(bets.length), inline: true },
         seedField,
@@ -122,8 +124,9 @@ async function tick(channel) {
     if (Date.now() >= state.bettingEndsAt) {
       state.phase = 'flying';
       state.startedAt = Date.now();
+      await renderPanel(channel); // switch to flying view immediately
     }
-    await renderPanel(channel);
+    // No panel edit during betting — Discord's <t:R> renders the countdown client-side
     return;
   }
 
@@ -236,6 +239,7 @@ async function placeBet(i) {
   );
   state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, stake, betId: br[0].id, auto });
   logBet(i.client, { user: i.user.username, game: 'crash', stake: stake.toString() });
+  renderPanel(state.channel).catch(() => {}); // update bets count on panel
   await i.reply({ ephemeral: true, content: `✅ ${fmt(stake)} placed.${auto ? ` Auto cash-out @ ${auto}×.` : ''}` });
 }
 

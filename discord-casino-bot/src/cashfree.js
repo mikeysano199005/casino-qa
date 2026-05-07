@@ -28,10 +28,13 @@ export function startWebhookServer(client) {
       }
 
       const payload = JSON.parse(raw);
-      const order = payload?.data?.order || payload?.data?.payment;
-      const orderId = order?.order_id || payload?.data?.order_id;
+      // Support both order webhooks (PAYMENT_SUCCESS) and payment link webhooks (PAYMENT_LINK_PAYMENT_SUCCESS)
+      const isLinkEvent = (payload?.type || '').startsWith('PAYMENT_LINK_');
+      const orderId = isLinkEvent
+        ? payload?.data?.link?.link_id
+        : (payload?.data?.order?.order_id || payload?.data?.order_id);
       const status  = (payload?.data?.payment?.payment_status || payload?.type || '').toUpperCase();
-      const paid    = Number(payload?.data?.payment?.payment_amount || order?.order_amount || 0);
+      const paid    = Number(payload?.data?.payment?.payment_amount || payload?.data?.order?.order_amount || 0);
 
       // Fast lookup (no lock) to handle non-success and unknown orders cheaply
       const { rows } = await q(`SELECT * FROM deposits WHERE cashfree_order_id=$1`, [orderId]);
