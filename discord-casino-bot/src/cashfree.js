@@ -11,6 +11,37 @@ export function startWebhookServer(client) {
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
+  // Hosted checkout page — loads Cashfree JS SDK with the order's payment_session_id
+  const CF_MODE = process.env.CASHFREE_ENV === 'prod' ? 'production' : 'sandbox';
+  app.get('/pay', (req, res) => {
+    const sid = String(req.query.session_id || '').replace(/[^A-Za-z0-9_\-]/g, '');
+    if (!sid) return res.status(400).send('Bad request');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Casino Deposit</title>
+<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+<style>body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px}</style>
+</head><body>
+<h2>Redirecting to payment…</h2>
+<script>
+Cashfree({ mode: "${CF_MODE}" }).checkout({
+  paymentSessionId: "${sid}",
+  redirectTarget: "_self"
+});
+</script></body></html>`);
+  });
+
+  app.get('/payment-done', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Done</title>
+<style>body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px}</style>
+</head><body>
+<h2>✅ Payment complete!</h2>
+<p>Return to Discord — your wallet will be credited automatically within seconds.</p>
+</body></html>`);
+  });
+
   app.post('/cashfree/webhook', async (req, res) => {
     try {
       const raw = req.body.toString('utf8');
