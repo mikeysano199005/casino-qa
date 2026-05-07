@@ -223,6 +223,7 @@ function openPromoModal(i) {
 }
 
 async function createPromo(i) {
+  await i.deferReply({ ephemeral: true });
   const code     = i.fields.getTextInputValue('code').trim().toUpperCase();
   const amount   = Number(i.fields.getTextInputValue('amount'));
   const wager    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager'))));
@@ -231,7 +232,7 @@ async function createPromo(i) {
   const expiresAt  = expiryDays ? new Date(Date.now() + Number(expiryDays) * 86400_000) : null;
 
   if (!code || !Number.isFinite(amount) || amount <= 0)
-    return i.reply({ ephemeral: true, content: 'Invalid code or amount.' });
+    return i.editReply({ content: 'Invalid code or amount.' });
 
   const bonus = BigInt(Math.round(amount * 100));
   try {
@@ -241,11 +242,11 @@ async function createPromo(i) {
       [code, bonus.toString(), wager, maxuses, expiresAt, i.user.id]
     );
   } catch (e) {
-    if (e.message.includes('unique')) return i.reply({ ephemeral: true, content: `Code \`${code}\` already exists.` });
+    if (e.message.includes('unique')) return i.editReply({ content: `Code \`${code}\` already exists.` });
     throw e;
   }
   await logAudit(i.user.id, 'promo_created', code, null, { bonus: bonus.toString(), wager, maxuses });
-  return i.reply({ ephemeral: true,
+  return i.editReply({
     content: `✅ Promo \`${code}\` created — **${fmt(bonus)}** bonus • ${wager}× wager • ${maxuses} uses${expiresAt ? ` • expires <t:${Math.floor(expiresAt.getTime()/1000)}:R>` : ''}`
   });
 }
