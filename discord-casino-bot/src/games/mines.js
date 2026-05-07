@@ -89,23 +89,30 @@ function openModal(i) {
 }
 
 async function startGame(i) {
+  await i.deferReply({ ephemeral: true });
+
   const amount = Number(i.fields.getTextInputValue('amount'));
   const mines  = Math.min(24, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
+    return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
 
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
-  catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+  catch (e) {
+    if (e.code === 'NOT_FOUND') return i.editReply({ content: '⚠️ No account found — interact with the bot in another channel first.' });
+    return i.editReply({ content: '🚫 Your account is suspended.' });
+  }
 
   // Abort any existing session (refund orphaned stake)
-  const existing = await getSession(i.user.id);
+  const existing = await getSession(i.user.id).catch(() => null);
   if (existing) {
-    await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
-      ref: null, meta: { game: 'mines', result: 'abandoned' } });
-    await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
-    await clearSession(existing.userId);
+    try {
+      await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
+        ref: null, meta: { game: 'mines', result: 'abandoned' } });
+      await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
+    } catch (e) { console.warn('[mines] abandon failed:', e.message); }
+    await clearSession(existing.userId).catch(() => {});
   }
 
   const stake = toPaise(amount);
@@ -118,7 +125,7 @@ async function startGame(i) {
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
       ref: null, meta: { game: 'mines', mines } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
+  } catch { return i.editReply({ content: '💸 Insufficient.' }); }
 
   const { rows: br } = await q(
     `INSERT INTO bets(user_id,game,stake,selection,result)
@@ -129,7 +136,7 @@ async function startGame(i) {
     revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
   await putSession(u.id, i.user.id, s);
   logBet(i.client, { user: i.user.username, game: 'mines', stake: stake.toString() });
-  await i.reply({ ephemeral: true, ...renderBoard(s) });
+  await i.editReply(renderBoard(s));
 }
 
 function payoutMultiplier(safeRevealed, mines) {
