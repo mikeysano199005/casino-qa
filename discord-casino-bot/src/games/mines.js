@@ -82,7 +82,7 @@ function openModal(i) {
       new TextInputBuilder().setCustomId('amount').setLabel('Stake ₹')
         .setStyle(TextInputStyle.Short).setRequired(true)),
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('mines').setLabel('Mines (1-24)')
+      new TextInputBuilder().setCustomId('mines').setLabel('Mines (1-19)')
         .setStyle(TextInputStyle.Short).setRequired(true).setValue('3')),
   );
   return i.showModal(m);
@@ -92,7 +92,7 @@ async function startGame(i) {
   await i.deferReply({ ephemeral: true });
   try {
     const amount = Number(i.fields.getTextInputValue('amount'));
-    const mines  = Math.min(24, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
+    const mines  = Math.min(19, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
     const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
     if (!Number.isFinite(amount) || amount < min || amount > max)
       return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
@@ -120,7 +120,7 @@ async function startGame(i) {
     const preset = await getPreset('mines');
     const bombs = new Set();
     let n = 0;
-    while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 25));
+    while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 20));
 
     try {
       await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
@@ -139,17 +139,18 @@ async function startGame(i) {
     await i.editReply(renderBoard(s));
   } catch (e) {
     console.error('[mines startGame]', e);
-    await i.editReply({ content: `⚠️ Error: ${e.message}` }).catch(() => {});
+    await i.editReply({ content: '⚠️ Something went wrong, please try again.' }).catch(() => {});
   }
 }
 
 function payoutMultiplier(safeRevealed, mines) {
-  return +Math.pow(25 / (25 - mines), safeRevealed) * 0.97;
+  return +Math.pow(20 / (20 - mines), safeRevealed) * 0.97;
 }
 
+// Grid is 4×5 = 20 tiles (indices 0-19) + cashout row = exactly 5 Discord action rows
 function renderBoard(s, revealAll = false) {
   const rows = [];
-  for (let r = 0; r < 5; r++) {
+  for (let r = 0; r < 4; r++) {
     const row = new ActionRowBuilder();
     for (let c = 0; c < 5; c++) {
       const idx = r * 5 + c;
@@ -186,7 +187,7 @@ async function revealTile(i, r, c) {
   const idx = r * 5 + c;
 
   if (s.preset === 'low' && s.bombs.has(idx) && s.revealed.size === 0) {
-    const safeIdx = [...Array(25).keys()].find(k => !s.bombs.has(k));
+    const safeIdx = [...Array(20).keys()].find(k => !s.bombs.has(k));
     s.bombs.delete(idx); s.bombs.add(safeIdx);
   } else if (s.preset === 'high' && !s.bombs.has(idx) && s.revealed.size === 0) {
     if (rngFloat(s.seed, 'biashigh', 0) < 0.6) {
@@ -220,7 +221,7 @@ async function cashOut(i) {
     broadcastBigWin(i.client, i.user.username, 'Mines', payout).catch(() => {});
   await clearSession(s.userId);
   await i.update({
-    ...renderBoard({ ...s, revealed: new Set(Array.from({ length: 25 }, (_, k) => k)) }, true),
+    ...renderBoard({ ...s, revealed: new Set(Array.from({ length: 20 }, (_, k) => k)) }, true),
     content: `💰 Cashed out: ${fmt(payout)} (${s.multiplier.toFixed(2)}×)`,
   });
 }
