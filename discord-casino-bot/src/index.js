@@ -80,8 +80,14 @@ client.once(Events.ClientReady, async () => {
   // post panels in main channels (idempotent: posts once on each boot)
   const safePanel = async (id, fn) => {
     if (!id) return;
-    try { const ch = await client.channels.fetch(id); await fn(ch); }
-    catch (e) { console.warn('panel', id, e.message); }
+    try {
+      const ch = await client.channels.fetch(id);
+      // Delete previous bot messages in this channel before reposting panel
+      const msgs = await ch.messages.fetch({ limit: 50 });
+      const botMsgs = msgs.filter(m => m.author.id === client.user.id);
+      for (const msg of botMsgs.values()) await msg.delete().catch(() => {});
+      await fn(ch);
+    } catch (e) { console.warn('panel', id, e.message); }
   };
   await safePanel(process.env.CH_PLAY,    play.postPanel);
   await safePanel(process.env.CH_WALLET,  wallet.postPanel);
