@@ -9,7 +9,7 @@ import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
 import { logBet, logRound, broadcastBigWin } from '../admin/logs.js';
 
-const TICK_MS    = 1500;
+const TICK_MS    = 2_000;  // update multiplier every 2s (easier on mobile)
 const BETTING_MS = 15_000; // 15-second betting window before launch
 
 let state = null;
@@ -67,7 +67,7 @@ function multiplierAt(elapsedMs) {
   return +(Math.pow(1.07, elapsedMs / 1000)).toFixed(2);
 }
 
-async function renderPanel(channel) {
+async function renderPanel(channel, forceNew = false) {
   const { phase, multiplier, crashAt, bets, bettingEndsAt, round } = state;
   const seedField = { name: 'Server seed (commit)', value: '`' + round.server_seed_hash.slice(0, 24) + '…`', inline: true };
 
@@ -86,7 +86,7 @@ async function renderPanel(channel) {
     embed = new EmbedBuilder()
       .setColor(Colors.Gold)
       .setTitle(`🚀 Crash — ${multiplier.toFixed(2)}×`)
-      .setDescription(`Cash out before it crashes!`)
+      .setDescription(`🔴 **LIVE** — Cash out before it crashes!\n_Updates every 2s • may lag on mobile_`)
       .addFields(
         { name: 'Active bets', value: String(bets.length), inline: true },
         seedField,
@@ -109,6 +109,12 @@ async function renderPanel(channel) {
     new ButtonBuilder().setCustomId('crash:cashout').setLabel('Cash Out').setStyle(ButtonStyle.Primary).setDisabled(!cashoutOpen),
   );
 
+  // On phase transition (betting→flying), delete old message so mobile gets a new ping
+  if (forceNew && state.panelMessageId) {
+    channel.messages.fetch(state.panelMessageId).then(m => m.delete()).catch(() => {});
+    state.panelMessageId = null;
+  }
+
   if (state.panelMessageId) {
     const msg = await channel.messages.fetch(state.panelMessageId).catch(() => null);
     if (msg) return msg.edit({ embeds: [embed], components: [row] });
@@ -124,7 +130,7 @@ async function tick(channel) {
     if (Date.now() >= state.bettingEndsAt) {
       state.phase = 'flying';
       state.startedAt = Date.now();
-      await renderPanel(channel); // switch to flying view immediately
+      await renderPanel(channel, true); // forceNew=true: delete betting msg, post fresh flying msg
     }
     // No panel edit during betting — Discord's <t:R> renders the countdown client-side
     return;

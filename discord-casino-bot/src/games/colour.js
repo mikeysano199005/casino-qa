@@ -38,6 +38,8 @@ export async function startColourLoop(client, channelId) {
   if (old) for (const m of old.filter(m => m.author.id === client.user.id).values()) await m.delete().catch(() => {});
   await postPanel(channel);
   setInterval(() => tick(channel).catch(e => console.error('[colour]', e)), ROUND_MS);
+  // Refresh panel every 8s so mobile clients see updated countdown + pool amounts
+  setInterval(() => { if (state) renderPanel(channel).catch(() => {}); }, 8_000);
 }
 
 async function postPanel(channel) {
