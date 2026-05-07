@@ -105,7 +105,8 @@ async function createDeposit(i) {
         'Content-Type': 'application/json',
       },
     });
-    const link = res.data.payment_link || `https://payments${env === 'sandbox.cashfree.com' ? '-test' : ''}.cashfree.com/links/${res.data.payment_session_id}`;
+    const base = env === 'sandbox.cashfree.com' ? 'https://payments-test.cashfree.com' : 'https://payments.cashfree.com';
+    const link = res.data.payment_link || `${base}/order/#${res.data.payment_session_id}`;
     await q(
       `INSERT INTO deposits(user_id,cashfree_order_id,amount,status) VALUES($1,$2,$3,'created')`,
       [u.id, orderId, toPaise(amount).toString()]
