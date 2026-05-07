@@ -224,31 +224,38 @@ function openPromoModal(i) {
 
 async function createPromo(i) {
   await i.deferReply({ ephemeral: true });
-  const code     = i.fields.getTextInputValue('code').trim().toUpperCase();
-  const amount   = Number(i.fields.getTextInputValue('amount'));
-  const wager    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager'))));
-  const maxuses  = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('maxuses')) || 999999));
-  const expiryDays = i.fields.getTextInputValue('expiry')?.trim();
-  const expiresAt  = expiryDays ? new Date(Date.now() + Number(expiryDays) * 86400_000) : null;
-
-  if (!code || !Number.isFinite(amount) || amount <= 0)
-    return i.editReply({ content: 'Invalid code or amount.' });
-
-  const bonus = BigInt(Math.round(amount * 100));
   try {
-    await q(
-      `INSERT INTO promo_codes(code, bonus_amount, wager_mult, max_uses, expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [code, bonus.toString(), wager, maxuses, expiresAt, i.user.id]
-    );
+    const code     = i.fields.getTextInputValue('code').trim().toUpperCase();
+    const amount   = Number(i.fields.getTextInputValue('amount'));
+    const wager    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager')) || 5));
+    const maxuses  = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('maxuses')) || 100));
+    const expiryDays = i.fields.getTextInputValue('expiry')?.trim();
+    const expiresAt  = expiryDays ? new Date(Date.now() + Number(expiryDays) * 86400_000) : null;
+
+    if (!code || !Number.isFinite(amount) || amount <= 0)
+      return i.editReply({ content: 'Invalid code or amount.' });
+
+    const bonus = BigInt(Math.round(amount * 100));
+    try {
+      await q(
+        `INSERT INTO promo_codes(code, bonus_amount, wager_mult, max_uses, expires_at, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [code, String(bonus), Number(wager), Number(maxuses), expiresAt, String(i.user.id)]
+      );
+    } catch (e) {
+      if (e.message.includes('unique')) return i.editReply({ content: `Code \`${code}\` already exists.` });
+      console.error('[createPromo db]', e.message);
+      return i.editReply({ content: `❌ Database error: ${e.message.slice(0, 200)}` });
+    }
+
+    await logAudit(i.user.id, 'promo_created', code, null, { bonus: String(bonus), wager, maxuses }).catch(() => {});
+    return i.editReply({
+      content: `✅ Promo \`${code}\` created — **${fmt(bonus)}** bonus • ${wager}× wager • ${maxuses} uses${expiresAt ? ` • expires <t:${Math.floor(expiresAt.getTime()/1000)}:R>` : ''}`
+    });
   } catch (e) {
-    if (e.message.includes('unique')) return i.editReply({ content: `Code \`${code}\` already exists.` });
-    throw e;
+    console.error('[createPromo]', e.message);
+    return i.editReply({ content: `❌ Error: ${e.message.slice(0, 200)}` });
   }
-  await logAudit(i.user.id, 'promo_created', code, null, { bonus: bonus.toString(), wager, maxuses });
-  return i.editReply({
-    content: `✅ Promo \`${code}\` created — **${fmt(bonus)}** bonus • ${wager}× wager • ${maxuses} uses${expiresAt ? ` • expires <t:${Math.floor(expiresAt.getTime()/1000)}:R>` : ''}`
-  });
 }
 
 async function deletePromo(i, promoId) {
