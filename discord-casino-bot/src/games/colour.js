@@ -19,7 +19,8 @@ const OPTIONS = [
 
 let state = null;
 const lastResults = [];
-const resultMsgIds = []; // keep only last 3 result messages
+const resultMsgIds = [];
+const allPanelMsgIds = new Set(); // track every panel message ever posted so we can purge them
 
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] });
@@ -38,8 +39,15 @@ export async function startColourLoop(client, channelId) {
   if (old) for (const m of old.filter(m => m.author.id === client.user.id).values()) await m.delete().catch(() => {});
   await postPanel(channel);
   setInterval(() => tick(channel).catch(e => console.error('[colour]', e)), ROUND_MS);
-  // Refresh panel every 8s so mobile clients see updated countdown + pool amounts
-  setInterval(() => { if (state) renderPanel(channel).catch(() => {}); }, 8_000);
+  // Edit-only refresh every 8s for mobile — never posts a new message
+  setInterval(async () => {
+    if (!state?.panelMessageId) return;
+    try {
+      const msg = await channel.messages.fetch(state.panelMessageId);
+      const embed = buildEmbed();
+      await msg.edit({ embeds: [embed], components: [buildRow()] });
+    } catch {} // silently skip if message gone
+  }, 8_000);
 }
 
 async function postPanel(channel) {
@@ -68,8 +76,8 @@ async function openRound() {
   };
 }
 
-async function renderPanel(channel) {
-  const embed = new EmbedBuilder()
+function buildEmbed() {
+  return new EmbedBuilder()
     .setColor(Colors.Gold)
     .setTitle('🎨 Colour Prediction')
     .setDescription(`Round closes <t:${Math.floor(state.endsAt / 1000)}:R>`)
@@ -83,18 +91,26 @@ async function renderPanel(channel) {
           : '—' },
       { name: 'Server seed (commit)', value: '`' + state.round.server_seed_hash.slice(0, 24) + '…`' },
     );
-  const row = new ActionRowBuilder().addComponents(
+}
+
+function buildRow() {
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('colour:bet:green').setLabel('Bet 🟢').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('colour:bet:red').setLabel('Bet 🔴').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('colour:bet:violet').setLabel('Bet 🟣').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('colour:history').setLabel('History').setStyle(ButtonStyle.Secondary),
   );
+}
+
+async function renderPanel(channel) {
   if (state.panelMessageId) {
     const msg = await channel.messages.fetch(state.panelMessageId).catch(() => null);
-    if (msg) return msg.edit({ embeds: [embed], components: [row] });
+    if (msg) return msg.edit({ embeds: [buildEmbed()], components: [buildRow()] });
+    // message gone — fall through to post a fresh one
   }
-  const m = await channel.send({ embeds: [embed], components: [row] });
+  const m = await channel.send({ embeds: [buildEmbed()], components: [buildRow()] });
   state.panelMessageId = m.id;
+  allPanelMsgIds.add(m.id);
 }
 
 async function tick(channel) {
@@ -102,11 +118,11 @@ async function tick(channel) {
   const settled = state;
   state = null; // lock out new bets during settlement
 
-  // Delete the closed round panel immediately
-  if (settled.panelMessageId) {
-    channel.messages.fetch(settled.panelMessageId).then(m => m.delete()).catch(() => {});
-    settled.panelMessageId = null;
+  // Delete ALL tracked panel messages (prevents accumulation)
+  for (const id of allPanelMsgIds) {
+    channel.messages.fetch(id).then(m => m.delete()).catch(() => {});
   }
+  allPanelMsgIds.clear();
 
   // 1. Settle the round
   const preset = settled.round.preset_mode || await getPreset('colour');
