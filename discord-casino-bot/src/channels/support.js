@@ -1,4 +1,4 @@
-import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } from 'discord.js';
+import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits } from 'discord.js';
 
 export function postPanel(channel) {
   return channel.send({
@@ -38,56 +38,81 @@ export async function handleInteraction(i) {
 async function createTicket(i) {
   await i.deferReply({ ephemeral: true });
 
-  // Check for an existing open ticket from this user in this channel
-  const active = await i.channel.threads.fetchActive().catch(() => null);
-  if (active) {
-    const existing = active.threads.find(t =>
-      t.name === `ticket-${i.user.username}` && !t.archived
-    );
-    if (existing) {
-      return i.editReply({ content: `You already have an open ticket: ${existing}` });
-    }
+  const guild = i.guild;
+  const ticketName = `ticket-${i.user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+  // Check for an existing open ticket channel for this user
+  const existing = guild.channels.cache.find(c => c.name === ticketName);
+  if (existing) {
+    return i.editReply({ content: `You already have an open ticket: ${existing}` });
   }
 
-  let thread;
+  // Build permission overwrites: hidden from everyone, visible to user + bot + support role
+  const overwrites = [
+    { id: guild.roles.everyone.id,  deny:  [PermissionFlagsBits.ViewChannel] },
+    {
+      id: i.user.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.AttachFiles,
+      ],
+    },
+    {
+      id: i.client.user.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageChannels,
+      ],
+    },
+  ];
+
+  if (process.env.SUPPORT_ROLE_ID) {
+    overwrites.push({
+      id: process.env.SUPPORT_ROLE_ID,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ],
+    });
+  }
+
+  let ticketChannel;
   try {
-    thread = await i.channel.threads.create({
-      name: `ticket-${i.user.username}`,
-      type: ChannelType.PrivateThread,
+    ticketChannel = await guild.channels.create({
+      name: ticketName,
+      type: ChannelType.GuildText,
+      parent: process.env.TICKET_CATEGORY_ID || null,
+      permissionOverwrites: overwrites,
       reason: `Support ticket for ${i.user.tag}`,
     });
-  } catch {
-    // Fallback to public thread if private threads aren't available
-    try {
-      thread = await i.channel.threads.create({
-        name: `ticket-${i.user.username}`,
-        type: ChannelType.PublicThread,
-        reason: `Support ticket for ${i.user.tag}`,
-      });
-    } catch (e) {
-      console.error('[support:ticket]', e);
-      return i.editReply({ content: '⚠️ Could not create ticket thread. Make sure the bot has Manage Threads permission.' });
-    }
+  } catch (e) {
+    console.error('[support:ticket]', e);
+    return i.editReply({ content: '⚠️ Could not create ticket channel. Make sure the bot has **Manage Channels** permission.' });
   }
 
-  await thread.members.add(i.user.id).catch(() => {});
-
   const roleText = process.env.SUPPORT_ROLE_ID ? `<@&${process.env.SUPPORT_ROLE_ID}>` : '';
-  await thread.send({
+  await ticketChannel.send({
     content: `<@${i.user.id}>${roleText ? ` ${roleText}` : ''}`,
     embeds: [new EmbedBuilder().setColor(Colors.Blue)
       .setTitle('🎫 Support Ticket')
-      .setDescription(`Hello <@${i.user.id}>! Describe your issue and a moderator will assist you shortly.\n\nClick **Close Ticket** when resolved.`)],
+      .setDescription(`Hello <@${i.user.id}>! Describe your issue and a moderator will assist you shortly.\n\nClick **Close Ticket** when your issue is resolved.`)],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('support:close').setLabel('🔒 Close Ticket').setStyle(ButtonStyle.Danger),
     )],
   });
 
-  return i.editReply({ content: `✅ Ticket created: ${thread}` });
+  return i.editReply({ content: `✅ Ticket opened: ${ticketChannel}` });
 }
 
 async function closeTicket(i) {
-  if (!i.channel.isThread()) return i.reply({ ephemeral: true, content: 'Use this inside a ticket thread.' });
-  await i.reply({ content: `🔒 Ticket closed by <@${i.user.id}>.` });
-  await i.channel.setArchived(true).catch(() => {});
+  if (!i.channel.name?.startsWith('ticket-'))
+    return i.reply({ ephemeral: true, content: 'Use this inside a ticket channel.' });
+
+  await i.reply({ content: `🔒 Ticket closed by <@${i.user.id}>. This channel will be deleted in 5 seconds.` });
+  setTimeout(() => i.channel.delete().catch(() => {}), 5_000);
 }
