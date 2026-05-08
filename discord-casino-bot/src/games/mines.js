@@ -6,7 +6,7 @@ import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logBet, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
 // ─── Session helpers (DB-backed, survives restarts) ──────────────────
 
@@ -136,7 +136,7 @@ async function startGame(i) {
     const s = { userId: u.id, username: i.user.username, stake, mines, bombs,
       revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
     await putSession(u.id, i.user.id, s);
-    logBet(i.client, { user: i.user.username, game: 'mines', stake: stake.toString() });
+    // result logged after settlement in revealTile/cashOut
     await i.editReply(renderBoard(s));
   } catch (e) {
     console.error('[mines startGame]', e);
@@ -203,6 +203,7 @@ async function revealTile(i, r, c) {
       ref: null, meta: { game: 'mines', result: 'bomb' } });
     await q(`UPDATE bets SET payout=0, result='loss', settled_at=now() WHERE id=$1`, [s.betId]);
     await clearSession(s.userId);
+    logBetResult(i.client, { user: s.username, discordId: i.user.id, game: 'mines', stake: s.stake.toString(), payout: '0', result: 'loss' });
     return i.update(renderBoard(s, true));
   }
   s.multiplier = payoutMultiplier(s.revealed.size, s.mines);
@@ -218,6 +219,7 @@ async function cashOut(i) {
     ref: null, meta: { game: 'mines', multiplier: s.multiplier } });
   await q(`UPDATE bets SET payout=$1, result='win', settled_at=now() WHERE id=$2`,
     [payout.toString(), s.betId]);
+  logBetResult(i.client, { user: s.username, discordId: i.user.id, game: 'mines', stake: s.stake.toString(), payout: payout.toString(), result: 'win' });
   if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Mines', payout).catch(() => {});
   await clearSession(s.userId);
