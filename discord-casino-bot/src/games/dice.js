@@ -6,7 +6,7 @@ import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logBet, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
 export function postPanel(channel) {
   return channel.send({
@@ -83,7 +83,7 @@ async function play(i) {
      VALUES($1,'dice',$2,$3,$4,$5,now()) RETURNING id`,
     [u.id, stake.toString(), { side, target, roll }, payout.toString(), win ? 'win' : 'loss']
   );
-  logBet(i.client, { user: i.user.username, game: 'dice', stake: stake.toString() });
+  logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'dice', stake: stake.toString(), payout: payout.toString(), result: win ? 'win' : 'loss' });
   if (win && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Dice', payout).catch(()=>{});
 

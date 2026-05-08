@@ -7,7 +7,7 @@ import { applyTx, requireActive, getPreset } from '../repo.js';
 import { newServerSeed, hash, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
-import { logBet, logRound, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
 
 const TICK_MS    = 2_000;  // update multiplier every 2s (easier on mobile)
 const BETTING_MS = 15_000; // 15-second betting window before launch
@@ -182,6 +182,7 @@ async function settle(channel) {
     }
     await q(`UPDATE bets SET payout=$1, result=$2, settled_at=now() WHERE id=$3`,
       [payout.toString(), payout > 0n ? 'win' : 'loss', b.betId]);
+    logBetResult(channel.client, { user: b.username, discordId: b.discordId, game: 'crash', stake: b.stake.toString(), payout: payout.toString(), result: payout > 0n ? 'win' : 'loss' });
   }
   await q(
     `UPDATE game_rounds SET server_seed=$1, total_pool=$2, house_pnl=$3, ended_at=now() WHERE id=$4`,
@@ -249,7 +250,6 @@ async function placeBet(i) {
     [u.id, state.round.id, stake.toString(), { auto }]
   );
   state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, stake, betId: br[0].id, auto });
-  logBet(i.client, { user: i.user.username, game: 'crash', stake: stake.toString() });
   renderPanel(state.channel).catch(() => {}); // update bets count on panel
   await i.reply({ ephemeral: true, content: `✅ ${fmt(stake)} placed.${auto ? ` Auto cash-out @ ${auto}×.` : ''}` });
 }

@@ -6,7 +6,7 @@ import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logBet, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -156,7 +156,7 @@ async function startHand(i) {
   );
   const s = { userId: u.id, stake, deck, player, dealer, betId: rows[0].id, doubled: false };
   await putSession(u.id, i.user.id, s);
-  logBet(i.client, { user: i.user.username, game: 'blackjack', stake: stake.toString() });
+  // result logged after settlement in finish() / natural BJ below
 
   // Natural blackjack: settle immediately at 3:2
   if (isNatural(player) && !isNatural(dealer)) {
@@ -166,6 +166,7 @@ async function startHand(i) {
     await q(`UPDATE bets SET payout=$1, result='win', settled_at=now() WHERE id=$2`,
       [payout.toString(), s.betId]);
     await clearSession(s.userId);
+    logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'blackjack', stake: s.stake.toString(), payout: payout.toString(), result: 'win' });
     if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
       broadcastBigWin(i.client, i.user.username, 'Blackjack', payout).catch(() => {});
     return i.reply({ ephemeral: true,
@@ -240,6 +241,7 @@ async function finish(i, s) {
   await q(`UPDATE bets SET payout=$1, result=$2, settled_at=now() WHERE id=$3`,
     [payout.toString(), result, s.betId]);
   await clearSession(s.userId);
+  logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'blackjack', stake: s.stake.toString(), payout: payout.toString(), result });
 
   if (result === 'win' && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Blackjack', payout).catch(() => {});

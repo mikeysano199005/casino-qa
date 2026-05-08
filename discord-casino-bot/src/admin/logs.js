@@ -11,9 +11,27 @@ const safeSend = async (client, channelId, payload) => {
   } catch (e) { console.warn('[log send]', e.message); }
 };
 
-export const logBet = (client, b) =>
-  safeSend(client, env.CH_BET_LOGS, { embeds: [new EmbedBuilder().setColor(Colors.Blurple)
-    .setTitle('🎯 Bet').setDescription(`**${b.user}** • ${b.game} • ${fmt(BigInt(b.stake))}${b.selection ? ` • ${b.selection}` : ''}`)]});
+export const logBetResult = (client, b) => {
+  const stake  = BigInt(b.stake  || 0);
+  const payout = BigInt(b.payout || 0);
+  const won    = b.result === 'win';
+  const pushed = b.result === 'push';
+  const net    = won ? payout - stake : pushed ? 0n : -stake;
+  const color  = won ? Colors.Green : pushed ? Colors.Yellow : Colors.Red;
+  const icon   = won ? '✅' : pushed ? '↔️' : '❌';
+  const game   = b.game.charAt(0).toUpperCase() + b.game.slice(1);
+  safeSend(client, env.CH_BET_LOGS, { embeds: [new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`${icon} ${game} — ${won ? 'WIN' : pushed ? 'PUSH' : 'LOSS'}`)
+    .addFields(
+      { name: '👤 Player',              value: `**${b.user}**\n\`${b.discordId}\``,          inline: true },
+      { name: '🎮 Game',                value: game,                                          inline: true },
+      { name: '🕐 Time',                value: `<t:${Math.floor(Date.now()/1000)}:R>`,        inline: true },
+      { name: '💰 Stake',               value: fmt(stake),                                    inline: true },
+      { name: '🏆 Payout',              value: fmt(payout),                                   inline: true },
+      { name: net >= 0n ? '📈 Profit' : '📉 Loss', value: `${net >= 0n ? '+' : ''}${fmt(net)}`, inline: true },
+    )]});
+};
 
 export const logRound = (client, game, id, info) =>
   safeSend(client, env.CH_ROUND_LOGS, { embeds: [new EmbedBuilder().setColor(Colors.Gold)

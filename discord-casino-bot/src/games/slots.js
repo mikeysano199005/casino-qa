@@ -6,7 +6,7 @@ import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logBet, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
 // Symbol weights and 3-of-a-kind paytable.
 const SYMBOLS = [
@@ -113,7 +113,7 @@ async function spin(i) {
      VALUES($1,'slots',$2,$3,$4,$5,now())`,
     [u.id, stake.toString(), { reels: reels.map(r => r.s) }, payout.toString(), win ? 'win' : 'loss']
   );
-  logBet(i.client, { user: i.user.username, game: 'slots', stake: stake.toString() });
+  logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'slots', stake: stake.toString(), payout: payout.toString(), result: win ? 'win' : 'loss' });
   if (win && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Slots', payout).catch(()=>{});
 

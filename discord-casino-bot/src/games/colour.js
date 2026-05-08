@@ -8,7 +8,7 @@ import { newServerSeed, hash, rngFloat } from '../util/fairness.js';
 import { pickOutcome } from './outcome.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
-import { logBet, logRound, broadcastBigWin } from '../admin/logs.js';
+import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
 
 const ROUND_MS = 25_000;
 const OPTIONS = [
@@ -145,6 +145,7 @@ async function tick(channel) {
       `UPDATE bets SET payout=$1, result=$2, settled_at=now() WHERE id=$3`,
       [payout.toString(), win ? 'win' : 'loss', b.betId]
     );
+    logBetResult(channel.client, { user: b.username, discordId: b.discordId, game: 'colour', stake: b.stake.toString(), payout: payout.toString(), result: win ? 'win' : 'loss' });
     if (win && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000)) {
       broadcastBigWin(channel.client, b.username, 'Colour', payout).catch(()=>{});
     }
@@ -228,8 +229,7 @@ async function placeBet(i, key) {
     [u.id, state.round.id, stake.toString(), { key }]
   );
   state.pool[key] += stake;
-  state.bets.push({ userId: u.id, username: i.user.username, key, stake, betId: br[0].id });
-  logBet(i.client, { user: i.user.username, game: 'colour', stake: stake.toString(), selection: key });
+  state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, key, stake, betId: br[0].id });
 
   await i.reply({ ephemeral: true,
     content: `✅ Bet placed: ${fmt(stake)} on **${key.toUpperCase()}**.`
