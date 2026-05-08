@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import { q } from './db/index.js';
 import { startColourLoop } from './games/colour.js';
 import { startCrashLoop }  from './games/crash.js';
+import { startMatkaLoop }  from './games/matka.js';
 import * as wallet  from './channels/wallet.js';
 import * as account from './channels/account.js';
 import * as support from './channels/support.js';
@@ -11,6 +12,7 @@ import * as mines   from './games/mines.js';
 import * as dice    from './games/dice.js';
 import * as bj      from './games/blackjack.js';
 import * as slots   from './games/slots.js';
+import * as matka   from './games/matka.js';
 import * as colour  from './games/colour.js';
 import * as crash   from './games/crash.js';
 import { handleAdminInteraction, postAdminPanel } from './admin/adminPanel.js';
@@ -28,6 +30,7 @@ const client = new Client({
 const HANDLERS = {
   colour:     colour.handleInteraction,
   crash:      crash.handleInteraction,
+  matka:      matka.handleInteraction,
   mines:      mines.handleInteraction,
   dice:       dice.handleInteraction,
   bj:         bj.handleInteraction,
@@ -108,6 +111,7 @@ client.once(Events.ClientReady, async () => {
 
   if (ch('CH_COLOUR')) startColourLoop(client, ch('CH_COLOUR')).catch(console.error);
   if (ch('CH_CRASH'))  startCrashLoop(client,  ch('CH_CRASH')).catch(console.error);
+  if (process.env.CH_MATKA) startMatkaLoop(client, process.env.CH_MATKA).catch(console.error);
 
   await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
 
