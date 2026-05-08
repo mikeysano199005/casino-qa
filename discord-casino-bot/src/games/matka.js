@@ -243,6 +243,9 @@ async function openBetModal(i, number) {
   if (!state) return i.reply({ ephemeral: true, content: 'No round in progress.' });
   if (state.endsAt - Date.now() < 1500) return i.reply({ ephemeral: true, content: '⏱ Round closing — bets locked.' });
 
+  const existing = state.bets.find(b => b.discordId === i.user.id);
+  if (existing) return i.reply({ ephemeral: true, content: `❌ You already bet **₹${fmt(existing.stake)}** on **${existing.number}** this round. One bet per round.` });
+
   // First-time guide: show once, then show modal on next click
   // Guard: column may not exist yet if migration 004 hasn't run
   const { rows } = await q(`SELECT matka_seen FROM users WHERE discord_id=$1`, [i.user.id]).catch(() => ({ rows: [] }));
