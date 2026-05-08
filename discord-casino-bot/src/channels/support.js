@@ -110,9 +110,13 @@ async function createTicket(i) {
 }
 
 async function closeTicket(i) {
-  if (!i.channel.name?.startsWith('ticket-'))
-    return i.reply({ ephemeral: true, content: 'Use this inside a ticket channel.' });
+  await i.deferReply();
 
-  await i.reply({ content: `🔒 Ticket closed by <@${i.user.id}>. This channel will be deleted in 5 seconds.` });
-  setTimeout(() => i.channel.delete().catch(() => {}), 5_000);
+  const channel = i.channel ?? await i.client.channels.fetch(i.channelId).catch(() => null);
+  if (!channel?.name?.startsWith('ticket-')) {
+    return i.editReply({ content: 'Use this inside a ticket channel.' });
+  }
+
+  await i.editReply({ content: `🔒 Ticket closed by <@${i.user.id}>. This channel will be deleted in 5 seconds.` });
+  setTimeout(() => channel.delete().catch(() => {}), 5_000);
 }

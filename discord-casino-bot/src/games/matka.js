@@ -242,9 +242,10 @@ async function openBetModal(i, number) {
   if (state.endsAt - Date.now() < 1500) return i.reply({ ephemeral: true, content: '⏱ Round closing — bets locked.' });
 
   // First-time guide: show once, then show modal on next click
-  const { rows } = await q(`SELECT matka_seen FROM users WHERE discord_id=$1`, [i.user.id]);
+  // Guard: column may not exist yet if migration 004 hasn't run
+  const { rows } = await q(`SELECT matka_seen FROM users WHERE discord_id=$1`, [i.user.id]).catch(() => ({ rows: [] }));
   if (rows[0] && !rows[0].matka_seen) {
-    await q(`UPDATE users SET matka_seen=true WHERE discord_id=$1`, [i.user.id]);
+    await q(`UPDATE users SET matka_seen=true WHERE discord_id=$1`, [i.user.id]).catch(() => {});
     return i.reply({
       ephemeral: true,
       embeds: [buildGuideEmbed()],
