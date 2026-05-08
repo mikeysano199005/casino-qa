@@ -194,7 +194,7 @@ function openVipModal(i, userId) {
   const m = new ModalBuilder().setCustomId(`userpanel:vipmodal:${userId}`).setTitle('Set VIP Tier');
   m.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder().setCustomId('tier')
-      .setLabel('Tier: 0=None  1=Bronze  2=Silver  3=Gold  4=Platinum')
+      .setLabel('0=None 1=Bronze 2=Silver 3=Gold 4=Platinum')
       .setStyle(TextInputStyle.Short).setRequired(true).setValue('1').setMaxLength(1)
   ));
   return i.showModal(m);
