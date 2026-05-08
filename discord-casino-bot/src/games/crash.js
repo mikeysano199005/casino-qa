@@ -76,7 +76,7 @@ async function renderPanel(channel, forceNew = false) {
     embed = new EmbedBuilder()
       .setColor(Colors.Blue)
       .setTitle('🚀 Crash — Betting Open!')
-      .setDescription(`Place your bets! Round launches at **<t:${Math.floor(bettingEndsAt / 1000)}:t>**`)
+      .setDescription(`Place your bets! Round launches at **<t:${Math.floor(bettingEndsAt / 1000)}:T>**`)
       .addFields(
         { name: 'Bets placed', value: String(bets.length), inline: true },
         seedField,

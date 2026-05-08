@@ -80,7 +80,7 @@ function buildEmbed() {
   return new EmbedBuilder()
     .setColor(Colors.Gold)
     .setTitle('🎨 Colour Prediction')
-    .setDescription(`Round closes at **<t:${Math.floor(state.endsAt / 1000)}:t>**`)
+    .setDescription(`Round closes at **<t:${Math.floor(state.endsAt / 1000)}:T>**`)
     .addFields(
       { name: '🟢 Green (2×)',  value: fmt(state.pool.green),  inline: true },
       { name: '🔴 Red (2×)',    value: fmt(state.pool.red),    inline: true },

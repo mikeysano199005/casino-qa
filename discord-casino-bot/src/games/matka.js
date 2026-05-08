@@ -95,7 +95,7 @@ function buildEmbed() {
     .setTitle('🎲 Matka')
     .setDescription(
       `Pick a number **0–9**. Correct pick pays **${PAYOUT}×** your stake!\n` +
-      `Round closes at **<t:${Math.floor(state.endsAt / 1000)}:t>**`
+      `Round closes at **<t:${Math.floor(state.endsAt / 1000)}:T>**`
     )
     .addFields(
       { name: '💰 Total Pool', value: fmt(totalPool),          inline: true },
