@@ -234,8 +234,8 @@ export async function handleInteraction(i) {
     if (action === 'rules')   return showRules(i);
   }
   if (i.isModalSubmit()) {
-    const [, , number] = i.customId.split(':');
-    return placeBet(i, Number(number));
+    const parts = i.customId.split(':');
+    return placeBet(i, Number(parts[2]), parts[3]);
   }
 }
 
@@ -264,7 +264,7 @@ async function openBetModal(i, number) {
   }
 
   const modal = new ModalBuilder()
-    .setCustomId(`matka:betmodal:${number}`)
+    .setCustomId(`matka:betmodal:${number}:${state.round.id}`)
     .setTitle(`Matka — Pick ${number}`);
   modal.addComponents(
     new ActionRowBuilder().addComponents(
@@ -279,11 +279,17 @@ async function openBetModal(i, number) {
   return i.showModal(modal);
 }
 
-async function placeBet(i, number) {
+async function placeBet(i, number, betRoundId) {
   if (!allow(i.user.id, Number(process.env.MAX_BETS_PER_SECOND || 4)))
     return i.reply({ ephemeral: true, content: 'Slow down — too many bets.' });
-  if (!state) return i.reply({ ephemeral: true, content: 'No round in progress.' });
-  if (state.endsAt - Date.now() < 1500) return i.reply({ ephemeral: true, content: '⏱ Round closing — bets locked.' });
+
+  // Round ended or changed while modal was open — no money touched yet
+  if (!state || state.round.id !== betRoundId)
+    return i.reply({ ephemeral: true, content: '⏱ That round already ended. No money was deducted — please bet in the new round.' });
+
+  if (state.endsAt - Date.now() < 1500)
+    return i.reply({ ephemeral: true, content: '⏱ Round just closed — no money was deducted. Please bet in the next round.' });
+
   if (state.bets.find(b => b.discordId === i.user.id))
     return i.reply({ ephemeral: true, content: 'You already placed a bet this round.' });
 
@@ -301,6 +307,21 @@ async function placeBet(i, number) {
       ref: state.round.id, meta: { game: 'matka', selection: number } });
   } catch {
     return i.reply({ ephemeral: true, content: '💸 Insufficient balance.' });
+  }
+
+  // Final safety check: if round changed between deduction and now, refund + DM
+  if (!state || state.round.id !== betRoundId) {
+    await applyTx({ userId: u.id, type: 'refund', amount: stake, lockDelta: -stake,
+      ref: null, meta: { game: 'matka', reason: 'round_ended_during_submit' } }).catch(() => {});
+    try {
+      const dUser = await i.client.users.fetch(i.user.id);
+      await dUser.send(
+        `💰 **Matka Refund — ₹${amount.toFixed(2)}**\n` +
+        `Your bet of **${fmt(stake)}** on number **${number}** was refunded because the round ended while your bet was being processed.\n` +
+        `Your balance has been restored. Please place your bet in the next round!`
+      );
+    } catch {}
+    return i.reply({ ephemeral: true, content: `⏱ The round ended while processing your bet. **${fmt(stake)} has been refunded** to your wallet — check your DMs.` });
   }
 
   const { rows: br } = await q(
