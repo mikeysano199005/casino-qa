@@ -60,7 +60,8 @@ export function postPanel(channel) {
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('💣 Mines')
       .setDescription('Pick safe tiles, cash out anytime. Hitting a mine = lose your stake.')],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('mines:start').setLabel('New Game').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('mines:start').setLabel('💣 New Game').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('mines:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
     )],
   });
 }
@@ -69,10 +70,25 @@ export async function handleInteraction(i) {
   if (i.isButton()) {
     const [, action, ...rest] = i.customId.split(':');
     if (action === 'start')   return openModal(i);
+    if (action === 'rules')   return showRules(i);
     if (action === 'tile')    return revealTile(i, +rest[0], +rest[1]);
     if (action === 'cashout') return cashOut(i);
   }
   if (i.isModalSubmit()) return startGame(i);
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('💣 Mines — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'Reveal safe tiles on a 4×5 grid (20 tiles). Each safe tile increases your multiplier. Cash out before hitting a mine!' },
+        { name: 'How to Play', value: '1. Set your **stake** and number of **mines** (1–19)\n2. Click tiles to reveal them\n3. 💎 = safe (multiplier increases)\n4. 💣 = mine (you lose your stake)\n5. Click **Cash Out** anytime to collect your winnings' },
+        { name: 'Multiplier', value: 'Grows with each safe tile revealed. More mines = higher multiplier per tile.' },
+        { name: 'Examples',value: '• 3 mines, 1 safe tile revealed → ~**1.16×**\n• 3 mines, 5 safe tiles → ~**2.00×**\n• 10 mines, 3 safe tiles → ~**4.5×**' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+      )],
+  });
 }
 
 function openModal(i) {

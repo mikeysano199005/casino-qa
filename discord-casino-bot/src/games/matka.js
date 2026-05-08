@@ -115,7 +115,8 @@ function buildRows() {
     row2.addComponents(new ButtonBuilder().setCustomId(`matka:bet:${n}`).setLabel(String(n)).setStyle(ButtonStyle.Primary));
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('matka:history').setLabel('📜 History').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('matka:history').setLabel('📊 History').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('matka:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
   );
   return [row1, row2, row3];
 }
@@ -230,6 +231,7 @@ export async function handleInteraction(i) {
     const [, action, ...rest] = i.customId.split(':');
     if (action === 'bet')     return openBetModal(i, Number(rest[0]));
     if (action === 'history') return showHistory(i);
+    if (action === 'rules')   return showRules(i);
   }
   if (i.isModalSubmit()) {
     const [, , number] = i.customId.split(':');
@@ -307,6 +309,21 @@ async function placeBet(i, number) {
   state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, number, stake, betId: br[0].id });
 
   await i.reply({ ephemeral: true, content: `✅ Bet placed: ${fmt(stake)} on **${number}**. Good luck!` });
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎲 Matka — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'Pick any number from **0 to 9**. If the winning number matches yours, you win **9×** your stake!' },
+        { name: 'How to Play', value: '1. Click any number button (**0–9**)\n2. Enter your stake amount\n3. Wait for the round to end at the shown time\n4. If your number is drawn — you win instantly!' },
+        { name: 'Payout', value: '**9×** your stake on a correct guess.\n\nExample: Bet ₹500 on **7** → Winning number is **7** → You receive **₹4,500**' },
+        { name: 'Rules', value: '• One bet per round per player\n• Round lasts **60 seconds**\n• All 10 numbers have equal natural odds (10% each)\n• Bets lock 1.5 seconds before round closes' },
+        { name: 'Bet Limits', value: `Min ₹${MIN_BET} — Max ₹${MAX_BET}` },
+        { name: 'Fairness', value: 'Server seed is committed before the round. Revealed after — you can verify the result was not tampered with.' },
+      )],
+  });
 }
 
 async function showHistory(i) {

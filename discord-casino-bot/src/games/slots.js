@@ -32,14 +32,32 @@ export function postPanel(channel) {
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎰 Slots')
       .setDescription('3 reels, match all 3 to win.\n🍒5× 🍋8× 🔔12× ⭐25× 💎50× 7️⃣100× 🎰250× your stake')],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('slots:spin').setLabel('Spin').setStyle(ButtonStyle.Primary)
+      new ButtonBuilder().setCustomId('slots:spin').setLabel('🎰 Spin').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('slots:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
     )],
   });
 }
 
 export async function handleInteraction(i) {
-  if (i.isButton()) return openModal(i);
+  if (i.isButton()) {
+    if (i.customId === 'slots:rules') return showRules(i);
+    return openModal(i);
+  }
   if (i.isModalSubmit()) return spin(i);
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎰 Slots — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'Spin 3 reels. Match all 3 symbols to win!' },
+        { name: 'Paytable (multiplier on your stake)',
+          value: '🍒 Cherry — **5×**\n🍋 Lemon — **8×**\n🔔 Bell — **12×**\n⭐ Star — **25×**\n💎 Diamond — **50×**\n7️⃣ Seven — **100×**\n🎰 Jackpot — **250×**' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+        { name: 'Note', value: 'Rarer symbols appear less often but pay much more. Only 3-of-a-kind wins.' },
+      )],
+  });
 }
 
 function openModal(i) {

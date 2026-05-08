@@ -107,6 +107,7 @@ async function renderPanel(channel, forceNew = false) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('crash:bet').setLabel('Place Bet').setStyle(ButtonStyle.Success).setDisabled(!bettingOpen),
     new ButtonBuilder().setCustomId('crash:cashout').setLabel('Cash Out').setStyle(ButtonStyle.Primary).setDisabled(!cashoutOpen),
+    new ButtonBuilder().setCustomId('crash:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
   );
 
   // On phase transition (betting→flying), delete old message so mobile gets a new ping
@@ -199,6 +200,7 @@ export async function handleInteraction(interaction) {
     const [, action] = interaction.customId.split(':');
     if (action === 'bet') return openBetModal(interaction);
     if (action === 'cashout') return cashOut(interaction);
+    if (action === 'rules') return showRules(interaction);
   }
   if (interaction.isModalSubmit()) return placeBet(interaction);
 }
@@ -263,4 +265,19 @@ async function cashOut(i) {
   state.cashedOut.add(b.userId);
   b.cashOutAt = state.multiplier;
   await i.reply({ ephemeral: true, content: `💰 Cashed out @ **${b.cashOutAt.toFixed(2)}×** — payout ${fmt(BigInt(Math.floor(Number(b.stake) * b.cashOutAt)))}` });
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🚀 Crash — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'A multiplier starts at **1×** and keeps rising. Cash out before it crashes to win. Wait too long and you lose everything!' },
+        { name: 'How to Play', value: '1. Place your bet during the **15-second betting window**\n2. Watch the multiplier climb live\n3. Click **Cash Out** before it crashes\n4. Your payout = stake × multiplier at cashout' },
+        { name: 'Auto Cash-Out', value: 'Set an automatic cash-out target when placing your bet (e.g. **2.0**). The bot will cash you out automatically when it hits that multiplier.' },
+        { name: 'Example', value: '• Bet ₹500, cash out at **3.5×** → win **₹1,750**\n• Bet ₹500, crash happens at **2.0×** before you cash out → lose **₹500**' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+        { name: 'Fairness', value: 'Crash point is determined by a server seed committed before the round starts. Seed is revealed after crash.' },
+      )],
+  });
 }

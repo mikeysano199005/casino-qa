@@ -13,14 +13,33 @@ export function postPanel(channel) {
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎲 Dice')
       .setDescription('Predict roll under/over. Higher chance = lower payout.')],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('dice:play').setLabel('Roll').setStyle(ButtonStyle.Primary)
+      new ButtonBuilder().setCustomId('dice:play').setLabel('🎲 Roll').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('dice:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
     )],
   });
 }
 
 export async function handleInteraction(i) {
-  if (i.isButton()) return openModal(i);
+  if (i.isButton()) {
+    if (i.customId === 'dice:rules') return showRules(i);
+    return openModal(i);
+  }
   if (i.isModalSubmit()) return play(i);
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎲 Dice — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'A number between **1–99** is rolled. Predict whether it will be UNDER or OVER your chosen target.' },
+        { name: 'How to Bet', value: '1. Choose **UNDER** or **OVER**\n2. Set a target number (**2–98**)\n3. Enter your stake' },
+        { name: 'Payout Formula', value: 'Payout = **0.97 ÷ win chance**\nHigher risk = bigger reward.' },
+        { name: 'Examples',
+          value: '• UNDER 50 → 49% chance → **1.98×**\n• UNDER 10 → 9% chance → **10.78×**\n• OVER 90 → 9% chance → **10.78×**\n• OVER 50 → 49% chance → **1.98×**' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+      )],
+  });
 }
 
 function openModal(i) {

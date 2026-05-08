@@ -98,7 +98,8 @@ function buildRow() {
     new ButtonBuilder().setCustomId('colour:bet:green').setLabel('Bet 🟢').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('colour:bet:red').setLabel('Bet 🔴').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('colour:bet:violet').setLabel('Bet 🟣').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('colour:history').setLabel('History').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('colour:history').setLabel('📊 History').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('colour:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
   );
 }
 
@@ -175,6 +176,7 @@ export async function handleInteraction(interaction) {
     const [, action, key] = interaction.customId.split(':');
     if (action === 'bet') return openBetModal(interaction, key);
     if (action === 'history') return showHistory(interaction);
+    if (action === 'rules') return showRules(interaction);
   }
   if (interaction.isModalSubmit()) {
     const [, , key] = interaction.customId.split(':');
@@ -243,5 +245,19 @@ async function showHistory(i) {
   const lines = rows.map(r => `• <t:${Math.floor(new Date(r.ended_at).getTime()/1000)}:R> — **${r.outcome?.winner ?? '—'}**`);
   await i.reply({ ephemeral: true,
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('Last 10 rounds').setDescription(lines.join('\n') || '—')]
+  });
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎨 Colour Prediction — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'Predict which colour wins before the round closes. Each round lasts **25 seconds**.' },
+        { name: 'Colours & Payouts', value: '🟢 **Green** — pays **2×** your stake (45% chance)\n🔴 **Red** — pays **2×** your stake (45% chance)\n🟣 **Violet** — pays **8×** your stake (10% chance)' },
+        { name: 'How to Bet', value: '1. Click **Bet 🟢**, **Bet 🔴**, or **Bet 🟣**\n2. Enter your stake amount\n3. Wait for the round to end — winners are paid instantly' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+        { name: 'Fairness', value: 'The server seed hash is shown before each round and revealed after. You can verify the result was not changed.' },
+      )],
   });
 }

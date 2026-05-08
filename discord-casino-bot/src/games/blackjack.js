@@ -83,7 +83,8 @@ export function postPanel(channel) {
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🃏 Blackjack')
       .setDescription('Beat the dealer without going over 21. Natural 21 pays 3:2.')],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bj:start').setLabel('New Hand').setStyle(ButtonStyle.Success)
+      new ButtonBuilder().setCustomId('bj:start').setLabel('🃏 New Hand').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('bj:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
     )],
   });
 }
@@ -92,11 +93,27 @@ export async function handleInteraction(i) {
   if (i.isButton()) {
     const [, action] = i.customId.split(':');
     if (action === 'start')  return openModal(i);
+    if (action === 'rules')  return showRules(i);
     if (action === 'hit')    return hit(i);
     if (action === 'stand')  return stand(i);
     if (action === 'double') return double(i);
   }
   if (i.isModalSubmit()) return startHand(i);
+}
+
+function showRules(i) {
+  return i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🃏 Blackjack — How to Play')
+      .addFields(
+        { name: 'Objective', value: 'Get closer to **21** than the dealer without going over (busting).' },
+        { name: 'Card Values', value: '• **2–10** = face value\n• **J, Q, K** = 10\n• **Ace** = 11 (counts as 1 if you\'d bust)' },
+        { name: 'Your Actions', value: '**Hit** — take another card\n**Stand** — keep your hand\n**Double Down** — double your bet, take exactly one more card' },
+        { name: 'Dealer Rules', value: 'Dealer must hit on 16 or less, stands on 17+. Dealer\'s first card is hidden.' },
+        { name: 'Payouts', value: '• Win → **2×** your stake\n• Natural Blackjack (21 in 2 cards) → **2.5×** your stake\n• Push (tie) → stake returned\n• Bust or dealer wins → lose stake' },
+        { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
+      )],
+  });
 }
 
 function openModal(i) {
