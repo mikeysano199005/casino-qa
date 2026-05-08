@@ -17,6 +17,7 @@ export async function handleUserPanelInteraction(i) {
   if (i.isButton()) {
     const [, action, ...rest] = i.customId.split(':');
     if (action === 'lookup')  return openLookupModal(i);
+    if (action === 'direct')  return showUserPanel(i, rest[0], false); // one-tap from bet logs
     if (action === 'refresh') return showUserPanel(i, rest[0], true);
     if (action === 'credit')  return openCreditModal(i, rest[0]);
     if (action === 'debit')   return openDebitModal(i, rest[0]);

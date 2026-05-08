@@ -20,17 +20,25 @@ export const logBetResult = (client, b) => {
   const color  = won ? Colors.Green : pushed ? Colors.Yellow : Colors.Red;
   const icon   = won ? '✅' : pushed ? '↔️' : '❌';
   const game   = b.game.charAt(0).toUpperCase() + b.game.slice(1);
-  safeSend(client, env.CH_BET_LOGS, { embeds: [new EmbedBuilder()
-    .setColor(color)
-    .setTitle(`${icon} ${game} — ${won ? 'WIN' : pushed ? 'PUSH' : 'LOSS'}`)
-    .addFields(
-      { name: '👤 Player',              value: `**${b.user}**\n\`${b.discordId}\``,          inline: true },
-      { name: '🎮 Game',                value: game,                                          inline: true },
-      { name: '🕐 Time',                value: `<t:${Math.floor(Date.now()/1000)}:R>`,        inline: true },
-      { name: '💰 Stake',               value: fmt(stake),                                    inline: true },
-      { name: '🏆 Payout',              value: fmt(payout),                                   inline: true },
-      { name: net >= 0n ? '📈 Profit' : '📉 Loss', value: `${net >= 0n ? '+' : ''}${fmt(net)}`, inline: true },
-    )]});
+  safeSend(client, env.CH_BET_LOGS, {
+    embeds: [new EmbedBuilder()
+      .setColor(color)
+      .setTitle(`${icon} ${game} — ${won ? 'WIN' : pushed ? 'PUSH' : 'LOSS'}`)
+      .addFields(
+        { name: '👤 Player',   value: `**${b.user}**\n\`${b.discordId}\``,               inline: true },
+        { name: '🎮 Game',     value: game,                                               inline: true },
+        { name: '🕐 Time',     value: `<t:${Math.floor(Date.now()/1000)}:R>`,             inline: true },
+        { name: '💰 Stake',    value: fmt(stake),                                         inline: true },
+        { name: '🏆 Payout',   value: fmt(payout),                                        inline: true },
+        { name: net >= 0n ? '📈 Profit' : '📉 Loss', value: `${net >= 0n ? '+' : ''}${fmt(net)}`, inline: true },
+      )],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`userpanel:direct:${b.discordId}`)
+        .setLabel('🔍 Lookup User')
+        .setStyle(ButtonStyle.Secondary),
+    )],
+  });
 };
 
 export const logRound = (client, game, id, info) =>
