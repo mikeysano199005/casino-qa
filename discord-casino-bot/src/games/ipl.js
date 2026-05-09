@@ -6,7 +6,6 @@ import { q } from '../db/index.js';
 import { applyTx, requireActive } from '../repo.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
-import { logBetResult } from '../admin/logs.js';
 
 const RAKE    = 0.03;
 const MIN_BET = 10;
