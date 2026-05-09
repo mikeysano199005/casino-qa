@@ -18,7 +18,7 @@ CREATE TABLE ipl_matches (
 CREATE TABLE ipl_bets (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id   UUID        NOT NULL REFERENCES ipl_matches(id),
-  user_id    INTEGER     NOT NULL REFERENCES users(id),
+  user_id    UUID        NOT NULL REFERENCES users(id),
   discord_id TEXT        NOT NULL,
   username   TEXT        NOT NULL,
   team       TEXT        NOT NULL CHECK (team IN ('a','b')),
