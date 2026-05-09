@@ -89,13 +89,18 @@ async function rejectWithdraw(i, wid, note) {
 export async function postAdminPanel(channel) {
   await channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.DarkGold).setTitle('🛡️ Admin Panel')],
-    components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('admin:kpis').setLabel('📊 KPIs').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('admin:pendingwd').setLabel('💸 Withdrawals').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('admin:preset').setLabel('🎛️ Presets').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('userpanel:lookup').setLabel('👤 User Lookup').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('admin:promos').setLabel('🎟️ Promo Codes').setStyle(ButtonStyle.Success),
-    )],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('admin:kpis').setLabel('📊 KPIs').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('admin:pendingwd').setLabel('💸 Withdrawals').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('admin:preset').setLabel('🎛️ Presets').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('userpanel:lookup').setLabel('👤 User Lookup').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('admin:promos').setLabel('🎟️ Promo Codes').setStyle(ButtonStyle.Success),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ipladmin:list').setLabel('🏏 IPL Betting').setStyle(ButtonStyle.Primary),
+      ),
+    ],
   });
 }
 

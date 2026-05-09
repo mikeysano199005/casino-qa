@@ -4,6 +4,7 @@ import { q } from './db/index.js';
 import { startColourLoop } from './games/colour.js';
 import { startCrashLoop }  from './games/crash.js';
 import { startMatkaLoop }  from './games/matka.js';
+import { startIplLoop }    from './games/ipl.js';
 import * as wallet  from './channels/wallet.js';
 import * as account from './channels/account.js';
 import * as support from './channels/support.js';
@@ -13,9 +14,11 @@ import * as dice    from './games/dice.js';
 import * as bj      from './games/blackjack.js';
 import * as slots   from './games/slots.js';
 import * as matka   from './games/matka.js';
+import * as ipl     from './games/ipl.js';
 import * as colour  from './games/colour.js';
 import * as crash   from './games/crash.js';
 import { handleAdminInteraction, postAdminPanel } from './admin/adminPanel.js';
+import { handleIplAdmin } from './admin/iplAdmin.js';
 import { botHeartbeat } from './admin/logs.js';
 import { startLiveDashboard } from './admin/liveDashboard.js';
 import { startWebhookServer } from './cashfree.js';
@@ -31,6 +34,8 @@ const HANDLERS = {
   colour:     colour.handleInteraction,
   crash:      crash.handleInteraction,
   matka:      matka.handleInteraction,
+  ipl:        ipl.handleInteraction,
+  ipladmin:   handleIplAdmin,
   mines:      mines.handleInteraction,
   dice:       dice.handleInteraction,
   bj:         bj.handleInteraction,
@@ -112,6 +117,7 @@ client.once(Events.ClientReady, async () => {
   if (ch('CH_COLOUR')) startColourLoop(client, ch('CH_COLOUR')).catch(console.error);
   if (ch('CH_CRASH'))  startCrashLoop(client,  ch('CH_CRASH')).catch(console.error);
   if (process.env.CH_MATKA) startMatkaLoop(client, process.env.CH_MATKA).catch(console.error);
+  if (process.env.CH_IPL)   startIplLoop(client);
 
   await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
 
