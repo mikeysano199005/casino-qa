@@ -1,4 +1,4 @@
-CREATE TABLE ipl_matches (
+CREATE TABLE IF NOT EXISTS ipl_matches (
   id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   title            TEXT        NOT NULL,
   team_a           TEXT        NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE ipl_matches (
   settled_at       TIMESTAMPTZ
 );
 
-CREATE TABLE ipl_bets (
+CREATE TABLE IF NOT EXISTS ipl_bets (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id   UUID        NOT NULL REFERENCES ipl_matches(id),
   user_id    UUID        NOT NULL REFERENCES users(id),
@@ -30,5 +30,5 @@ CREATE TABLE ipl_bets (
   UNIQUE (match_id, user_id)
 );
 
-CREATE INDEX ON ipl_bets(match_id);
-CREATE INDEX ON ipl_bets(user_id);
+CREATE INDEX IF NOT EXISTS ipl_bets_match_id_idx ON ipl_bets(match_id);
+CREATE INDEX IF NOT EXISTS ipl_bets_user_id_idx  ON ipl_bets(user_id);
