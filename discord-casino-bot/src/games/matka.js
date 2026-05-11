@@ -165,7 +165,7 @@ async function tick(channel) {
     paid += payout;
     await applyTx({
       userId: b.userId, type: win ? 'win' : 'bet', amount: win ? payout : 0n,
-      lockDelta: -b.stake, ref: settled.round.id,
+      lockDelta: 0n, ref: settled.round.id,
       meta: { game: 'matka', selection: b.number, result: winner, payout: payout.toString() },
     });
     await q(`UPDATE bets SET payout=$1, result=$2, settled_at=now() WHERE id=$3`,
@@ -303,7 +303,7 @@ async function placeBet(i, number, betRoundId) {
 
   const stake = toPaise(amount);
   try {
-    await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
+    await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: 0n,
       ref: state.round.id, meta: { game: 'matka', selection: number } });
   } catch {
     return i.reply({ ephemeral: true, content: '💸 Insufficient balance.' });
@@ -311,7 +311,7 @@ async function placeBet(i, number, betRoundId) {
 
   // Final safety check: if round changed between deduction and now, refund + DM
   if (!state || state.round.id !== betRoundId) {
-    await applyTx({ userId: u.id, type: 'refund', amount: stake, lockDelta: -stake,
+    await applyTx({ userId: u.id, type: 'refund', amount: stake, lockDelta: 0n,
       ref: null, meta: { game: 'matka', reason: 'round_ended_during_submit' } }).catch(() => {});
     try {
       const dUser = await i.client.users.fetch(i.user.id);
