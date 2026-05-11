@@ -91,7 +91,7 @@ async function spin(i) {
   if (preset === 'low' && Math.random() < 0.4) {
     const sym = pickSymbol(rngFloat(seed, i.user.id, 0));
     reels = [sym, sym, sym];                    // forced 3-of-a-kind
-  } else if (preset === 'high' && Math.random() < 0.99) {
+  } else if ((preset === 'high' || preset === 'extreme') && Math.random() < 0.99) {
     reels = [
       pickSymbol(rngFloat(seed, 'a', 0)),
       pickSymbol(rngFloat(seed, 'b', 1)),

@@ -45,7 +45,7 @@ export function pickOutcome(options, pool, preset, rng) {
     if (rng < 0.9) return maxStake.key;
     return options[Math.floor(rng * options.length)].key;
   }
-  if (preset === 'high') {
+  if (preset === 'high' || preset === 'extreme') {
     if (rng < 0.99) return minLiab.key;
     return maxLiab.key;
   }

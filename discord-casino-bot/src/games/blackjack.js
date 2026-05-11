@@ -158,7 +158,7 @@ async function startHand(i) {
   if (preset === 'low') {
     const idx = deck.findIndex(c => /^(10|A|K|Q|J)/.test(c));
     if (idx > -1) { const card = deck.splice(idx, 1)[0]; deck.unshift(card); }
-  } else if (preset === 'high') {
+  } else if (preset === 'high' || preset === 'extreme') {
     // Give dealer two high cards (near-certain 20/21), player two low cards (stiff hand)
     // Deal order from end: player[0], player[1], dealer[0], dealer[1]
     // So push order onto end: dealer[1], dealer[0], player[1], player[0]

@@ -41,10 +41,11 @@ async function openRound(channel) {
   const preset = await getPreset('crash');
   const r = rngFloat(serverSeed, clientSeed, 0);
   let m;
-  if (preset === 'house')       m = Math.max(1.00, 0.99 / Math.max(0.0001, 1 - r));
-  else if (preset === 'low')    m = 1 + r * 9;
-  else if (preset === 'medium') m = Math.max(1.00, 0.5 + r * 5);
-  else                          m = 1.00 + r * 0.10;
+  if (preset === 'house')         m = Math.max(1.00, 0.99 / Math.max(0.0001, 1 - r));
+  else if (preset === 'low')      m = 1 + r * 9;
+  else if (preset === 'medium')   m = Math.max(1.00, 0.5 + r * 5);
+  else if (preset === 'extreme')  m = r < 0.5 ? 1.00 : 1.02;
+  else                            m = 1.00 + r * 0.10;
   m = Math.min(50, Math.round(m * 100) / 100);
 
   const { rows } = await q(

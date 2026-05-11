@@ -109,19 +109,28 @@ export async function postAdminPanel(channel) {
 
 async function openPresetMenu(i) {
   const games = ['global', 'colour', 'crash', 'mines', 'dice', 'blackjack', 'slots', 'matka'];
-  const modes = ['house', 'low', 'medium', 'high', 'prediction'];
-  const makeRows = (list) => list.map(g =>
+  const modesA = ['house', 'low', 'medium'];
+  const modesB = ['high', 'prediction', 'extreme'];
+
+  const makeGameRows = (g) => [
     new ActionRowBuilder().addComponents(
-      ...modes.map(m => new ButtonBuilder()
+      ...modesA.map(m => new ButtonBuilder()
         .setCustomId(`admin:setpreset:${g}:${m}`).setLabel(`${g}:${m}`)
-        .setStyle(m === 'house' ? ButtonStyle.Secondary : m === 'low' ? ButtonStyle.Success : m === 'medium' ? ButtonStyle.Primary : ButtonStyle.Danger))
-    )
-  );
-  // Discord max 5 action rows per message — split across two replies
-  await i.reply({ ephemeral: true, content: 'Presets (1/2):', components: makeRows(games.slice(0, 5)) });
-  if (games.length > 5) {
-    await i.followUp({ ephemeral: true, content: 'Presets (2/2):', components: makeRows(games.slice(5)) });
-  }
+        .setStyle(m === 'house' ? ButtonStyle.Secondary : m === 'low' ? ButtonStyle.Success : ButtonStyle.Primary))
+    ),
+    new ActionRowBuilder().addComponents(
+      ...modesB.map(m => new ButtonBuilder()
+        .setCustomId(`admin:setpreset:${g}:${m}`).setLabel(`${g}:${m}`)
+        .setStyle(ButtonStyle.Danger))
+    ),
+  ];
+
+  // 2 rows per game, Discord max 5 rows per message → 2 games per message
+  const chunks = [];
+  for (let j = 0; j < games.length; j += 2) chunks.push(games.slice(j, j + 2).flatMap(makeGameRows));
+  await i.reply({ ephemeral: true, content: `Presets (1/${chunks.length}):`, components: chunks[0] });
+  for (let j = 1; j < chunks.length; j++)
+    await i.followUp({ ephemeral: true, content: `Presets (${j + 1}/${chunks.length}):`, components: chunks[j] });
 }
 
 async function setPreset(i, scope, mode) {

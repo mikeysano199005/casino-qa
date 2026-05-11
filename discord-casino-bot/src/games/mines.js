@@ -206,7 +206,7 @@ async function revealTile(i, r, c) {
   if (s.preset === 'low' && s.bombs.has(idx) && s.revealed.size === 0) {
     const safeIdx = [...Array(20).keys()].find(k => !s.bombs.has(k));
     s.bombs.delete(idx); s.bombs.add(safeIdx);
-  } else if (s.preset === 'high' && !s.bombs.has(idx) && s.revealed.size === 0) {
+  } else if ((s.preset === 'high' || s.preset === 'extreme') && !s.bombs.has(idx) && s.revealed.size === 0) {
     const removeBomb = [...s.bombs][0];
     s.bombs.delete(removeBomb); s.bombs.add(idx);
   }
