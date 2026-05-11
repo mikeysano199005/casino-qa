@@ -46,8 +46,7 @@ export function pickOutcome(options, pool, preset, rng) {
     return options[Math.floor(rng * options.length)].key;
   }
   if (preset === 'high') {
-    // 95% pick the side that costs house the least
-    if (rng < 0.95) return minLiab.key;
+    if (rng < 0.99) return minLiab.key;
     return maxLiab.key;
   }
   // medium: 50/50 between users-favouring and house-favouring

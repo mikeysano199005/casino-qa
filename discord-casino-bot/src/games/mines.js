@@ -207,10 +207,8 @@ async function revealTile(i, r, c) {
     const safeIdx = [...Array(20).keys()].find(k => !s.bombs.has(k));
     s.bombs.delete(idx); s.bombs.add(safeIdx);
   } else if (s.preset === 'high' && !s.bombs.has(idx) && s.revealed.size === 0) {
-    if (rngFloat(s.seed, 'biashigh', 0) < 0.6) {
-      const removeBomb = [...s.bombs][0];
-      s.bombs.delete(removeBomb); s.bombs.add(idx);
-    }
+    const removeBomb = [...s.bombs][0];
+    s.bombs.delete(removeBomb); s.bombs.add(idx);
   }
 
   s.revealed.add(idx);

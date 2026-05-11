@@ -88,7 +88,7 @@ async function play(i) {
   const bias = rngFloat(seed, 'bias', 0);
   const jitter = Math.floor(rngFloat(seed, 'jitter', 0) * 5);
   if (preset === 'low'  && bias < 0.9)  roll = side === 'UNDER' ? Math.max(1, target - 1 - jitter) : target + 1 + jitter;
-  if (preset === 'high' && bias < 0.95) roll = side === 'UNDER' ? target + 1 + jitter : Math.max(1, target - 1 - jitter);
+  if (preset === 'high' && bias < 0.99) roll = side === 'UNDER' ? target + 1 + jitter : Math.max(1, target - 1 - jitter);
   roll = Math.min(99, Math.max(1, roll));
 
   const win = side === 'UNDER' ? roll < target : roll > target;

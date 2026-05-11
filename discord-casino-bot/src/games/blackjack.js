@@ -159,8 +159,15 @@ async function startHand(i) {
     const idx = deck.findIndex(c => /^(10|A|K|Q|J)/.test(c));
     if (idx > -1) { const card = deck.splice(idx, 1)[0]; deck.unshift(card); }
   } else if (preset === 'high') {
-    const idx = deck.findIndex(c => /^(10|K|Q|J)/.test(c));
-    if (idx > -1) { const card = deck.splice(idx, 1)[0]; deck.splice(3, 0, card); }
+    // Give dealer two high cards (near-certain 20/21), player two low cards (stiff hand)
+    // Deal order from end: player[0], player[1], dealer[0], dealer[1]
+    // So push order onto end: dealer[1], dealer[0], player[1], player[0]
+    const hi = [], lo = [];
+    for (let i = 0; i < deck.length && (hi.length < 2 || lo.length < 2); i++) {
+      if (hi.length < 2 && /^(A|10|K|Q|J)/.test(deck[i])) hi.push(deck.splice(i--, 1)[0]);
+      else if (lo.length < 2 && /^[5-8]/.test(deck[i]))   lo.push(deck.splice(i--, 1)[0]);
+    }
+    if (hi.length === 2 && lo.length === 2) deck.push(hi[0], hi[1], lo[0], lo[1]);
   }
 
   const player = [deck.pop(), deck.pop()];
