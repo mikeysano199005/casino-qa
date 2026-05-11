@@ -4,6 +4,7 @@ import { applyTx, logAudit } from '../repo.js';
 import { fmt } from '../util/money.js';
 import { logAuditMsg } from './logs.js';
 import { handleUserPanelInteraction } from './userPanel.js';
+import { togglePrediction, getPredictionState } from '../games/matka.js';
 
 const adminIds = () => (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = (id) => adminIds().includes(id);
@@ -29,9 +30,10 @@ export async function handleAdminInteraction(i) {
     if (action === 'setpreset')     return setPreset(i, rest[0], rest[1]);
     if (action === 'pendingwd')     return listPendingWithdraws(i);
     if (action === 'kpis')          return showKPIs(i);
-    if (action === 'promos')        return listPromos(i);
-    if (action === 'newpromo')      return openPromoModal(i);
-    if (action === 'delpromo')      return deletePromo(i, rest[0]);
+    if (action === 'promos')           return listPromos(i);
+    if (action === 'newpromo')         return openPromoModal(i);
+    if (action === 'delpromo')         return deletePromo(i, rest[0]);
+    if (action === 'toggleprediction') return toggleMatkaPrediction(i);
   }
   if (i.isModalSubmit() && i.customId === 'admin:newpromomodal') {
     if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
@@ -99,6 +101,7 @@ export async function postAdminPanel(channel) {
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ipladmin:list').setLabel('🏏 IPL Betting').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('admin:toggleprediction').setLabel('🔮 Matka Predictions').setStyle(ButtonStyle.Secondary),
       ),
     ],
   });
@@ -271,4 +274,9 @@ async function deletePromo(i, promoId) {
   await q(`UPDATE promo_codes SET active = FALSE WHERE id = $1`, [promoId]);
   await logAudit(i.user.id, 'promo_deactivated', promoId, null, {});
   return i.reply({ ephemeral: true, content: '✅ Promo code deactivated.' });
+}
+
+async function toggleMatkaPrediction(i) {
+  const newState = togglePrediction();
+  await i.reply({ ephemeral: true, content: `🔮 Matka predictions are now **${newState ? 'ON ✅' : 'OFF ❌'}**` });
 }
