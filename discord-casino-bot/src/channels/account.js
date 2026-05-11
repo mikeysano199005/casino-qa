@@ -6,7 +6,7 @@ import { fmt } from '../util/money.js';
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('👤 Account')
-      .setDescription('Profile, stats, daily reward, leaderboard, and referrals.')],
+      .setDescription('Profile, stats, daily reward, and referrals.')],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('account:profile').setLabel('Profile').setStyle(ButtonStyle.Secondary),
@@ -14,7 +14,6 @@ export function postPanel(channel) {
         new ButtonBuilder().setCustomId('account:reward').setLabel('Daily Reward').setStyle(ButtonStyle.Success),
       ),
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('account:leaderboard').setLabel('🏆 Leaderboard').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('account:referral').setLabel('🔗 My Referral').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('account:refcode').setLabel('Referral Code').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('account:promo').setLabel('🎟️ Promo Code').setStyle(ButtonStyle.Success),
@@ -30,7 +29,6 @@ export async function handleInteraction(i) {
     if (action === 'profile')     return showProfile(i, u);
     if (action === 'stats')       return showStats(i, u);
     if (action === 'reward')      return claimReward(i, u);
-    if (action === 'leaderboard') return showLeaderboard(i);
     if (action === 'referral')    return showReferral(i, u);
     if (action === 'refcode')     return openRefModal(i);
     if (action === 'promo')       return openPromoModal(i);
@@ -75,28 +73,6 @@ async function claimReward(i, u) {
   const reward = 100n; // ₹1
   await applyTx({ userId: u.id, type: 'bonus', amount: reward, ref: null, meta: { kind: 'daily' } });
   return i.reply({ ephemeral: true, content: `🎁 +${fmt(reward)} added!` });
-}
-
-async function showLeaderboard(i) {
-  const { rows } = await q(
-    `SELECT u.username, COALESCE(SUM(b.payout::bigint - b.stake::bigint), 0) AS net
-     FROM bets b
-     JOIN users u ON u.id = b.user_id
-     WHERE b.result IN ('win','loss','push') AND b.settled_at IS NOT NULL
-     GROUP BY u.username
-     ORDER BY net DESC
-     LIMIT 10`
-  );
-  if (!rows.length) return i.reply({ ephemeral: true, content: 'No data yet.' });
-  const medals = ['🥇','🥈','🥉'];
-  const lines = rows.map((r, idx) =>
-    `${medals[idx] || `${idx + 1}.`} **${r.username}** — ${Number(r.net) >= 0 ? '+' : ''}${fmt(BigInt(r.net))}`
-  );
-  return i.reply({ ephemeral: true,
-    embeds: [new EmbedBuilder().setColor(Colors.Gold)
-      .setTitle('🏆 Leaderboard — Top 10 by profit')
-      .setDescription(lines.join('\n'))]
-  });
 }
 
 async function showReferral(i, u) {

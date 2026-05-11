@@ -19,7 +19,7 @@ export async function checkAndSendWelcome(client, discordUser) {
       '**Quick start:**',
       '• 💳 **#wallet** — Deposit (min ₹100), withdraw, check balance',
       '• 🎮 **#play** — All games below',
-      '• 👤 **#account** — Claim daily ₹10 reward, leaderboard, referrals',
+      '• 👤 **#account** — Claim daily ₹10 reward, referrals',
       '',
       '**Games:**',
       '🎨 Colour (2× / 8×) • 🚀 Crash • 💣 Mines • 🎲 Dice • 🃏 Blackjack • 🎰 Slots',
