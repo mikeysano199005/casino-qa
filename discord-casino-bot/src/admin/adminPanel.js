@@ -106,7 +106,7 @@ export async function postAdminPanel(channel) {
 
 async function openPresetMenu(i) {
   const games = ['global', 'colour', 'crash', 'mines', 'dice', 'blackjack', 'slots', 'matka'];
-  const modes = ['house', 'low', 'medium', 'high'];
+  const modes = ['house', 'low', 'medium', 'high', 'prediction'];
   const makeRows = (list) => list.map(g =>
     new ActionRowBuilder().addComponents(
       ...modes.map(m => new ButtonBuilder()

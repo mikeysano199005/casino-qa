@@ -14,34 +14,46 @@ const PAYOUT   = 9;       // 9× on correct number (natural 10×, −10% house e
 const MIN_BET  = 100;     // ₹100 minimum — Matka only
 const MAX_BET  = 50_000;  // ₹50,000 maximum — Matka only
 
-let state = null;
-const lastResults   = [];          // last 15 winning numbers
-const resultMsgIds  = [];
-const allPanelMsgIds = new Set();  // track every posted panel so we can purge all on tick
+let state   = null;
+let _client = null;   // set by startMatkaLoop, used for prediction channel
+const lastResults    = [];
+const resultMsgIds   = [];
+const allPanelMsgIds = new Set();
 
 // ─── Preset-aware winner picker ───────────────────────────────────────
-// low    → 90% pick the number with most stake (players mostly win)
-// medium → 50% player-favorable, 50% house-favorable
-// high   → 99% pick a number with no/fewest bets (1% player win rate)
-// house  → uniform random 0–9
+// house      → uniform random 0–9
+// low        → 90% pick the number with most stake (players mostly win)
+// medium     → 50% player-favorable, 50% house-favorable
+// high       → ALWAYS opposite: pick a zero-bet number; if all are bet, pick lowest-staked
+// prediction → same RNG as 'house' — winner is pre-announced to CH_MATKA_PREDICTION
 
 function pickWinner(pool, preset, rng, rng2) {
-  const nums = Array.from({ length: 10 }, (_, i) => i);
-  const stake = (n) => pool[n] ?? 0n;  // BigInt stake for number n
+  const nums  = Array.from({ length: 10 }, (_, i) => i);
+  const stake = (n) => pool[n] ?? 0n;
 
-  if (preset === 'house') return Math.floor(rng * 10);
+  if (preset === 'house' || preset === 'prediction') return Math.floor(rng * 10);
 
-  // Sort descending by total stake (most bet = index 0)
-  const sorted = [...nums].sort((a, b) => Number(stake(b)) - Number(stake(a)));
+  // Sort descending by stake so [0] = most-bet number
+  const sorted     = [...nums].sort((a, b) => Number(stake(b)) - Number(stake(a)));
   const mostStaked = sorted[0];
 
-  // House win: prefer a number nobody bet on; fall back to least-staked number
-  const zeroBet = nums.find(n => stake(n) === 0n);
-  const houseWinner = zeroBet !== undefined ? zeroBet : sorted[sorted.length - 1];
-
   if (preset === 'low')    return rng < 0.90 ? mostStaked : Math.floor(rng2 * 10);
-  if (preset === 'medium') return rng < 0.50 ? mostStaked : houseWinner;
-  if (preset === 'high')   return rng < 0.01 ? mostStaked : houseWinner;
+  if (preset === 'medium') {
+    const zeroBet   = nums.find(n => stake(n) === 0n);
+    const houseWin  = zeroBet !== undefined ? zeroBet : sorted[sorted.length - 1];
+    return rng < 0.50 ? mostStaked : houseWin;
+  }
+  if (preset === 'high') {
+    // Always pick a number nobody bet on — maximises house profit
+    const zeroBets = nums.filter(n => stake(n) === 0n);
+    if (zeroBets.length > 0) {
+      // Random among unbet numbers so it looks natural
+      return zeroBets[Math.floor(rng * zeroBets.length)];
+    }
+    // All 10 numbers have bets — pick the one with the LOWEST total stake
+    // (winner is paid out on a tiny amount → minimum payout for house)
+    return [...nums].sort((a, b) => Number(stake(a)) - Number(stake(b)))[0];
+  }
   return Math.floor(rng * 10);
 }
 
@@ -50,13 +62,38 @@ function pickWinner(pool, preset, rng, rng2) {
 async function openRound() {
   const serverSeed = newServerSeed();
   const clientSeed = Date.now().toString(36);
-  const preset = await getPreset('matka');
-  const { rows } = await q(
+  const preset     = await getPreset('matka');
+  const { rows }   = await q(
     `INSERT INTO game_rounds(game, server_seed_hash, client_seed, nonce, preset_mode)
      VALUES('matka', $1, $2, 0, $3) RETURNING *`,
     [hash(serverSeed), clientSeed, preset]
   );
   const pool = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [i, 0n]));
+
+  // In prediction mode: winner is determined NOW from the seed and broadcast to the VIP channel.
+  // The same RNG value is re-used in tick(), so the prediction is always 100% accurate.
+  let predictedWinner = null;
+  if (preset === 'prediction') {
+    const rng = rngFloat(serverSeed, clientSeed, 0);
+    predictedWinner = Math.floor(rng * 10);
+    if (_client && process.env.CH_MATKA_PREDICTION) {
+      const endsAt = Date.now() + ROUND_MS;
+      const ch = await _client.channels.fetch(process.env.CH_MATKA_PREDICTION).catch(() => null);
+      if (ch) {
+        ch.send({
+          embeds: [new EmbedBuilder()
+            .setColor(Colors.Purple)
+            .setTitle('🔮 Matka — VIP Prediction')
+            .setDescription(
+              `**Winning number: ${predictedWinner}**\n` +
+              `Round closes at **<t:${Math.floor(endsAt / 1000)}:T>**\n` +
+              `_Bet on **${predictedWinner}** before the round ends to win 9× your stake!_`
+            )],
+        }).catch(() => {});
+      }
+    }
+  }
+
   state = {
     round: rows[0],
     serverSeed,
@@ -64,10 +101,12 @@ async function openRound() {
     bets: [],
     endsAt: Date.now() + ROUND_MS,
     panelMessageId: null,
+    predictedWinner,
   };
 }
 
 export async function startMatkaLoop(client, channelId) {
+  _client = client;
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[matka] no channel');
   // Clear stale bot messages on restart
@@ -153,9 +192,12 @@ async function tick(channel) {
   allPanelMsgIds.clear();
 
   const preset = settled.round.preset_mode || await getPreset('matka');
-  const rng  = rngFloat(settled.serverSeed, settled.round.client_seed, 0);
-  const rng2 = rngFloat(settled.serverSeed, settled.round.client_seed, 1);
-  const winner = pickWinner(settled.pool, preset, rng, rng2);
+  const rng    = rngFloat(settled.serverSeed, settled.round.client_seed, 0);
+  const rng2   = rngFloat(settled.serverSeed, settled.round.client_seed, 1);
+  // prediction mode: winner was locked in at round open — use it directly
+  const winner = (settled.predictedWinner !== null)
+    ? settled.predictedWinner
+    : pickWinner(settled.pool, preset, rng, rng2);
 
   let totalPool = 0n, paid = 0n;
   for (const b of settled.bets) {
