@@ -129,17 +129,18 @@ export async function startMatkaLoop(client, channelId) {
 
 function buildEmbed() {
   const totalPool = Object.values(state.pool).reduce((a, b) => a + b, 0n);
+  const matchId   = state.round.id.slice(-6).toUpperCase();
+  const closeTs   = Math.floor(state.endsAt / 1000);
   return new EmbedBuilder()
     .setColor(Colors.Gold)
-    .setTitle('🎲 Matka')
-    .setDescription(
-      `Pick a number **0–9**. Correct pick pays **${PAYOUT}×** your stake!\n` +
-      `Round closes at **<t:${Math.floor(state.endsAt / 1000)}:T>**`
-    )
+    .setTitle('🎲 Matka King')
+    .setDescription(`Pick a number **0–9**. Correct pick pays **${PAYOUT}×** your stake!`)
     .addFields(
-      { name: '💰 Total Pool', value: fmt(totalPool),          inline: true },
-      { name: '🎫 Bets',       value: String(state.bets.length), inline: true },
-      { name: '📊 Last 15', value: lastResults.length ? lastResults.map(String).join('  ') : '—', inline: false },
+      { name: '🆔 Match ID',    value: `\`MK-${matchId}\``,         inline: true },
+      { name: '⏰ Closes At',   value: `<t:${closeTs}:T>`,           inline: true },
+      { name: '💰 Total Pool',  value: fmt(totalPool),               inline: true },
+      { name: '🎫 Bets',        value: String(state.bets.length),    inline: true },
+      { name: '📊 Last 15',     value: lastResults.length ? lastResults.map(String).join('  ') : '—', inline: false },
       { name: '🔐 Seed (commit)', value: '`' + state.round.server_seed_hash.slice(0, 24) + '…`', inline: false },
     );
 }
