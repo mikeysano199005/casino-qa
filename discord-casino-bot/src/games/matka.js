@@ -14,8 +14,12 @@ const PAYOUT   = 9;       // 9× on correct number (natural 10×, −10% house e
 const MIN_BET  = 100;     // ₹100 minimum — Matka only
 const MAX_BET  = 50_000;  // ₹50,000 maximum — Matka only
 
-let state   = null;
-let _client = null;   // set by startMatkaLoop, used for prediction channel
+let state              = null;
+let _client            = null;
+let predictionEnabled  = true;  // admin-togglable at runtime
+
+export const togglePrediction  = () => { predictionEnabled = !predictionEnabled; return predictionEnabled; };
+export const getPredictionState = () => predictionEnabled;
 const lastResults    = [];
 const resultMsgIds   = [];
 const allPanelMsgIds = new Set();
@@ -76,7 +80,7 @@ async function openRound() {
   if (preset === 'prediction') {
     const rng = rngFloat(serverSeed, clientSeed, 0);
     predictedWinner = Math.floor(rng * 10);
-    if (_client && process.env.CH_MATKA_PREDICTION) {
+    if (predictionEnabled && _client && process.env.CH_MATKA_PREDICTION) {
       const endsAt = Date.now() + ROUND_MS;
       const ch = await _client.channels.fetch(process.env.CH_MATKA_PREDICTION).catch(() => null);
       if (ch) {
