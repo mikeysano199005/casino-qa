@@ -5,6 +5,7 @@ import {
 import { q } from '../db/index.js';
 import { applyTx, logAudit } from '../repo.js';
 import { fmt } from '../util/money.js';
+import { logAuditMsg } from './logs.js';
 
 const VIP_NAMES = ['None', '🥉 Bronze', '🥈 Silver', '🥇 Gold', '💎 Platinum'];
 
@@ -143,6 +144,7 @@ async function processCredit(i, userId) {
   const paise = BigInt(Math.round(amount * 100));
   await applyTx({ userId, type: 'adjust', amount: paise, ref: null, meta: { reason, admin: i.user.id } });
   await logAudit(i.user.id, 'admin_credit', userId, null, { amount: paise.toString(), reason });
+  logAuditMsg(i.client, `💸 Admin **credit** **${fmt(paise)}** to user \`${userId}\` by <@${i.user.id}> — ${reason}`);
   return i.reply({ ephemeral: true, content: `✅ Credited **${fmt(paise)}** to user.\nReason: ${reason}` });
 }
 
@@ -175,6 +177,7 @@ async function processDebit(i, userId) {
     return i.reply({ ephemeral: true, content: '💸 User has insufficient balance for this debit.' });
   }
   await logAudit(i.user.id, 'admin_debit', userId, null, { amount: paise.toString(), reason });
+  logAuditMsg(i.client, `📤 Admin **debit** **${fmt(paise)}** from user \`${userId}\` by <@${i.user.id}> — ${reason}`);
   return i.reply({ ephemeral: true, content: `✅ Debited **${fmt(paise)}** from user.\nReason: ${reason}` });
 }
 
@@ -187,6 +190,7 @@ async function toggleBan(i, userId) {
   await q(`UPDATE users SET status = $1 WHERE id = $2`, [newStatus, userId]);
   await logAudit(i.user.id, newStatus === 'banned' ? 'admin_ban' : 'admin_unban', userId,
     { status: rows[0].status }, { status: newStatus });
+  logAuditMsg(i.client, `${newStatus === 'banned' ? '🚫 **Banned**' : '✅ **Unbanned**'} user \`${userId}\` (<@${rows[0].discord_id}>) by <@${i.user.id}>`);
   await i.reply({ ephemeral: true, content: `User is now **${newStatus}**.` });
   try {
     const dUser = await i.client.users.fetch(rows[0].discord_id);
@@ -240,6 +244,7 @@ async function applyUserPreset(i, userId, preset) {
   await q(`UPDATE users SET user_preset = $1 WHERE id = $2`, [isClear ? null : preset, userId]);
   const { rows } = await q(`SELECT username FROM users WHERE id = $1`, [userId]);
   await logAudit(i.user.id, 'admin_set_user_preset', userId, null, { preset: isClear ? null : preset });
+  logAuditMsg(i.client, `🎯 User preset for **${rows[0]?.username}** set to **${isClear ? 'cleared' : preset}** by <@${i.user.id}>`);
   await i.reply({ ephemeral: true,
     content: isClear
       ? `✅ User preset cleared for **${rows[0]?.username}** — they will use game defaults.`
@@ -331,5 +336,6 @@ async function processVip(i, userId) {
   const tier = Math.min(4, Math.max(0, Math.floor(Number(i.fields.getTextInputValue('tier')))));
   await q(`UPDATE users SET vip_tier = $1 WHERE id = $2`, [tier, userId]);
   await logAudit(i.user.id, 'admin_set_vip', userId, null, { vip_tier: tier });
+  logAuditMsg(i.client, `⭐ VIP tier for user \`${userId}\` set to **${VIP_NAMES[tier]}** by <@${i.user.id}>`);
   return i.reply({ ephemeral: true, content: `✅ VIP tier set to **${VIP_NAMES[tier]}**.` });
 }

@@ -11,6 +11,12 @@ const safeSend = async (client, channelId, payload) => {
   } catch (e) { console.warn('[log send]', e.message); }
 };
 
+// Mirror payload to CH_AUDIT_LOG unless it's already the target channel.
+const mirrorToAudit = (client, primaryId, payload) => {
+  if (env.CH_AUDIT_LOG && env.CH_AUDIT_LOG !== primaryId)
+    safeSend(client, env.CH_AUDIT_LOG, payload);
+};
+
 export const logBetResult = (client, b) => {
   const stake  = BigInt(b.stake  || 0);
   const payout = BigInt(b.payout || 0);
@@ -20,7 +26,7 @@ export const logBetResult = (client, b) => {
   const color  = won ? Colors.Green : pushed ? Colors.Yellow : Colors.Red;
   const icon   = won ? '✅' : pushed ? '↔️' : '❌';
   const game   = b.game.charAt(0).toUpperCase() + b.game.slice(1);
-  safeSend(client, env.CH_BET_LOGS, {
+  const payload = {
     embeds: [new EmbedBuilder()
       .setColor(color)
       .setTitle(`${icon} ${game} — ${won ? 'WIN' : pushed ? 'PUSH' : 'LOSS'}`)
@@ -38,15 +44,20 @@ export const logBetResult = (client, b) => {
         .setLabel('🔍 Lookup User')
         .setStyle(ButtonStyle.Secondary),
     )],
-  });
+  };
+  safeSend(client, env.CH_BET_LOGS, payload);
+  mirrorToAudit(client, env.CH_BET_LOGS, payload);
 };
 
-export const logRound = (client, game, id, info) =>
-  safeSend(client, env.CH_ROUND_LOGS, { embeds: [new EmbedBuilder().setColor(Colors.Gold)
-    .setTitle(`📦 Round settled: ${game}`).setDescription(`\`${id}\`\n\`\`\`json\n${JSON.stringify(info, null, 2).slice(0, 1800)}\n\`\`\``)]});
+export const logRound = (client, game, id, info) => {
+  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Gold)
+    .setTitle(`📦 Round settled: ${game}`).setDescription(`\`${id}\`\n\`\`\`json\n${JSON.stringify(info, null, 2).slice(0, 1800)}\n\`\`\``)] };
+  safeSend(client, env.CH_ROUND_LOGS, payload);
+  mirrorToAudit(client, env.CH_ROUND_LOGS, payload);
+};
 
-export const logDeposit = (client, d) =>
-  safeSend(client, env.CH_DEPOSIT_LOGS, { embeds: [new EmbedBuilder().setColor(Colors.Green)
+export const logDeposit = (client, d) => {
+  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Green)
     .setTitle('💰 Deposit credited')
     .addFields(
       { name: 'Amount',     value: fmt(BigInt(d.amount)),                              inline: true },
@@ -54,23 +65,38 @@ export const logDeposit = (client, d) =>
       { name: 'Discord',    value: d.discord_id ? `<@${d.discord_id}>` : '—',         inline: true },
       { name: 'Discord ID', value: d.discord_id || '—',                               inline: true },
       { name: 'Order',      value: `\`${d.order_id}\``,                               inline: false },
-    )]});
+    )] };
+  safeSend(client, env.CH_DEPOSIT_LOGS, payload);
+  mirrorToAudit(client, env.CH_DEPOSIT_LOGS, payload);
+};
 
-export const logPaymentError = (client, e) =>
-  safeSend(client, env.CH_PAYMENT_ERRORS, { embeds: [new EmbedBuilder().setColor(Colors.Red)
-    .setTitle('⚠️ Payment error').setDescription(`Stage: ${e.stage}\nUser: ${e.user || '—'}\n\`\`\`${JSON.stringify(e.error).slice(0, 1500)}\`\`\``)]});
+export const logPaymentError = (client, e) => {
+  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Red)
+    .setTitle('⚠️ Payment error').setDescription(`Stage: ${e.stage}\nUser: ${e.user || '—'}\n\`\`\`${JSON.stringify(e.error).slice(0, 1500)}\`\`\``)] };
+  safeSend(client, env.CH_PAYMENT_ERRORS, payload);
+  mirrorToAudit(client, env.CH_PAYMENT_ERRORS, payload);
+};
 
-export const logAlert = (client, msg) =>
-  safeSend(client, env.CH_ALERTS, { content: `🚨 ${msg}` });
+export const logAlert = (client, msg) => {
+  const payload = { content: `🚨 ${msg}` };
+  safeSend(client, env.CH_ALERTS, payload);
+  mirrorToAudit(client, env.CH_ALERTS, payload);
+};
 
-export const logSuspicious = (client, msg) =>
-  safeSend(client, env.CH_SUSPICIOUS, { content: `🕵️ ${msg}` });
+export const logSuspicious = (client, msg) => {
+  const payload = { content: `🕵️ ${msg}` };
+  safeSend(client, env.CH_SUSPICIOUS, payload);
+  mirrorToAudit(client, env.CH_SUSPICIOUS, payload);
+};
 
 export const logAuditMsg = (client, msg) =>
   safeSend(client, env.CH_AUDIT_LOG, { content: `📝 ${msg}` });
 
-export const broadcastBigWin = (client, username, game, payout) =>
-  safeSend(client, env.CH_CHAT, { content: `🎉 **${username}** just won **${fmt(payout)}** on ${game}!` });
+export const broadcastBigWin = (client, username, game, payout) => {
+  const payload = { content: `🎉 **${username}** just won **${fmt(payout)}** on ${game}!` };
+  safeSend(client, env.CH_CHAT, payload);
+  mirrorToAudit(client, env.CH_CHAT, payload);
+};
 
 export async function postWithdrawRequest(client, w) {
   const isUpi = !!w.upi_id;
@@ -100,7 +126,9 @@ export async function postWithdrawRequest(client, w) {
     new ButtonBuilder().setCustomId(`wd:approve:${w.id}`).setLabel('✅ Approve').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`wd:reject:${w.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger),
   );
-  await safeSend(client, env.CH_WITHDRAW_REQUESTS, { embeds: [e], components: [row] });
+  const payload = { embeds: [e], components: [row] };
+  await safeSend(client, env.CH_WITHDRAW_REQUESTS, payload);
+  mirrorToAudit(client, env.CH_WITHDRAW_REQUESTS, payload);
 }
 
 export async function botHeartbeat(client) {

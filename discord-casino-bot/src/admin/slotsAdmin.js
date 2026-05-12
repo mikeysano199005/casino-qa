@@ -3,6 +3,7 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { slotsForced, SYMBOLS } from '../games/slots.js';
+import { logAuditMsg } from './logs.js';
 
 const adminIds = () => (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin  = (id) => adminIds().includes(id);
@@ -107,6 +108,7 @@ async function setSymbolOutcome(i, discordId, symbolIdx) {
   const sym = SYMBOLS[symbolIdx];
   if (!sym) return i.reply({ ephemeral: true, content: '❌ Invalid symbol.' });
   slotsForced.set(discordId, { type: 'symbol', symbol: sym });
+  logAuditMsg(i.client, `🎰 Slots override: <@${discordId}> next spin forced to **${sym.s} ${sym.s} ${sym.s}** (${sym.pay}×) by <@${i.user.id}>`);
   await i.update({
     content: `✅ Next spin for <@${discordId}> will land **${sym.s} ${sym.s} ${sym.s}** (${sym.pay}× payout).`,
     components: [],
@@ -120,6 +122,7 @@ async function applyWinLoss(i) {
   if (type !== 'win' && type !== 'lose')
     return i.reply({ ephemeral: true, content: '❌ Type must be `win` or `lose`.' });
   slotsForced.set(discordId, { type, remaining: count });
+  logAuditMsg(i.client, `🎰 Slots override: <@${discordId}> next **${count}** spin(s) forced to **${type.toUpperCase()}** by <@${i.user.id}>`);
   await i.reply({
     ephemeral: true,
     content: `✅ Next **${count}** spin(s) for <@${discordId}> will **${type === 'win' ? '🏆 WIN' : '💀 LOSE'}**.`,
@@ -130,6 +133,7 @@ async function clearUserOutcome(i) {
   const discordId = i.fields.getTextInputValue('discordId').trim();
   if (slotsForced.has(discordId)) {
     slotsForced.delete(discordId);
+    logAuditMsg(i.client, `🧹 Slots override cleared for <@${discordId}> by <@${i.user.id}>`);
     await i.reply({ ephemeral: true, content: `✅ Override cleared for <@${discordId}>.` });
   } else {
     await i.reply({ ephemeral: true, content: `ℹ️ No active override for <@${discordId}>.` });

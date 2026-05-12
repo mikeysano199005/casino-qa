@@ -68,12 +68,14 @@ async function approveWithdraw(i, wid) {
   await q(`UPDATE withdrawals SET status='paid', admin_id=$1, settled_at=now() WHERE id=$2`, [i.user.id, wid]);
   await logAudit(i.user.id, 'withdraw_approved', wid, null, { amount: w.amount });
   await i.update({ components: [], embeds: [...i.message.embeds.map(e => EmbedBuilder.from(e).setColor(Colors.Green).setTitle('✅ Approved'))] });
-  // log to history
   const histChan = i.client.channels.cache.get(process.env.CH_WITHDRAW_HISTORY);
   if (histChan) histChan.send(`✅ Approved withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}>`);
-  // DM user
-  try { const u = await i.client.users.fetch((await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0].discord_id);
-    u.send(`✅ Your withdraw of ${fmt(BigInt(w.amount))} has been approved and paid out.`); } catch {}
+  try {
+    const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
+    logAuditMsg(i.client, `✅ Withdraw **${fmt(BigInt(w.amount))}** approved for <@${discordRow?.discord_id}> by <@${i.user.id}>`);
+    const u = await i.client.users.fetch(discordRow.discord_id);
+    u.send(`✅ Your withdraw of ${fmt(BigInt(w.amount))} has been approved and paid out.`);
+  } catch {}
 }
 
 function openRejectModal(i, wid) {
@@ -97,8 +99,12 @@ async function rejectWithdraw(i, wid, note) {
   await i.reply({ ephemeral: true, content: 'Rejected and refunded.' });
   const histChan = i.client.channels.cache.get(process.env.CH_WITHDRAW_HISTORY);
   if (histChan) histChan.send(`❌ Rejected withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}> — ${note}`);
-  try { const u = await i.client.users.fetch((await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0].discord_id);
-    u.send(`❌ Your withdraw was rejected: ${note}\nFunds returned to wallet.`); } catch {}
+  try {
+    const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
+    logAuditMsg(i.client, `❌ Withdraw **${fmt(BigInt(w.amount))}** rejected for <@${discordRow?.discord_id}> by <@${i.user.id}> — ${note}`);
+    const u = await i.client.users.fetch(discordRow.discord_id);
+    u.send(`❌ Your withdraw was rejected: ${note}\nFunds returned to wallet.`);
+  } catch {}
 }
 
 export async function postAdminPanel(channel) {
@@ -363,6 +369,7 @@ async function saveMediumLimit(i) {
   if (!VALID_PRESETS.has(preset)) return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
   await q(`UPDATE amount_preset_config SET medium_preset=$1, updated_by=$2, updated_at=now() WHERE id=1`, [preset, i.user.id]);
   invalidateAmountPreset();
+  logAuditMsg(i.client, `💵 Amount preset Medium → **${preset}** by <@${i.user.id}>`);
   await i.reply({ ephemeral: true, content: `✅ Medium tier → **${preset}** preset` });
 }
 
@@ -374,6 +381,7 @@ async function saveHardLimit(i) {
   const paise = Math.round(rs * 100);
   await q(`UPDATE amount_preset_config SET hard_min=$1, hard_preset=$2, updated_by=$3, updated_at=now() WHERE id=1`, [paise, preset, i.user.id]);
   invalidateAmountPreset();
+  logAuditMsg(i.client, `💵 Amount preset Hard (> ₹${rs}) → **${preset}** by <@${i.user.id}>`);
   await i.reply({ ephemeral: true, content: `✅ Hard: bets **> ₹${rs}** → **${preset}** preset` });
 }
 
@@ -381,5 +389,6 @@ async function toggleAmountPresets(i) {
   const { rows } = await q(`UPDATE amount_preset_config SET enabled = NOT enabled, updated_by=$1, updated_at=now() WHERE id=1 RETURNING enabled`, [i.user.id]);
   const enabled = rows[0]?.enabled ?? false;
   invalidateAmountPreset();
+  logAuditMsg(i.client, `💵 Amount-based presets toggled **${enabled ? 'ON ✅' : 'OFF ❌'}** by <@${i.user.id}>`);
   await i.reply({ ephemeral: true, content: `💵 Amount-based presets are now **${enabled ? 'ON ✅' : 'OFF ❌'}**` });
 }
