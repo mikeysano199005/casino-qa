@@ -46,14 +46,12 @@ export const logBetResult = (client, b) => {
     )],
   };
   safeSend(client, env.CH_BET_LOGS, payload);
-  mirrorToAudit(client, env.CH_BET_LOGS, payload);
 };
 
 export const logRound = (client, game, id, info) => {
   const payload = { embeds: [new EmbedBuilder().setColor(Colors.Gold)
     .setTitle(`📦 Round settled: ${game}`).setDescription(`\`${id}\`\n\`\`\`json\n${JSON.stringify(info, null, 2).slice(0, 1800)}\n\`\`\``)] };
   safeSend(client, env.CH_ROUND_LOGS, payload);
-  mirrorToAudit(client, env.CH_ROUND_LOGS, payload);
 };
 
 export const logDeposit = (client, d) => {
@@ -67,7 +65,6 @@ export const logDeposit = (client, d) => {
       { name: 'Order',      value: `\`${d.order_id}\``,                               inline: false },
     )] };
   safeSend(client, env.CH_DEPOSIT_LOGS, payload);
-  mirrorToAudit(client, env.CH_DEPOSIT_LOGS, payload);
 };
 
 export const logPaymentError = (client, e) => {
@@ -128,7 +125,6 @@ export async function postWithdrawRequest(client, w) {
   );
   const payload = { embeds: [e], components: [row] };
   await safeSend(client, env.CH_WITHDRAW_REQUESTS, payload);
-  mirrorToAudit(client, env.CH_WITHDRAW_REQUESTS, payload);
 }
 
 export async function botHeartbeat(client) {

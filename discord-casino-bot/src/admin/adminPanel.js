@@ -72,7 +72,6 @@ async function approveWithdraw(i, wid) {
   if (histChan) histChan.send(`✅ Approved withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}>`);
   try {
     const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
-    logAuditMsg(i.client, `✅ Withdraw **${fmt(BigInt(w.amount))}** approved for <@${discordRow?.discord_id}> by <@${i.user.id}>`);
     const u = await i.client.users.fetch(discordRow.discord_id);
     u.send(`✅ Your withdraw of ${fmt(BigInt(w.amount))} has been approved and paid out.`);
   } catch {}
@@ -101,7 +100,6 @@ async function rejectWithdraw(i, wid, note) {
   if (histChan) histChan.send(`❌ Rejected withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}> — ${note}`);
   try {
     const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
-    logAuditMsg(i.client, `❌ Withdraw **${fmt(BigInt(w.amount))}** rejected for <@${discordRow?.discord_id}> by <@${i.user.id}> — ${note}`);
     const u = await i.client.users.fetch(discordRow.discord_id);
     u.send(`❌ Your withdraw was rejected: ${note}\nFunds returned to wallet.`);
   } catch {}
