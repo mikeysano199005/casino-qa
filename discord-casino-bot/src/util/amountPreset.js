@@ -13,12 +13,12 @@ async function load() {
 
 export function invalidateAmountPreset() { _cfg = null; }
 
-// Returns 'low', 'medium', or 'high' when enabled, else null (caller uses game preset)
+// Returns the configured preset for the stake when enabled, else null (caller uses game preset)
 export async function resolveAmountPreset(stakeInPaise) {
   const cfg = await load();
   if (!cfg.enabled) return null;
   const s = typeof stakeInPaise === 'bigint' ? stakeInPaise : BigInt(stakeInPaise);
-  if (s < BigInt(cfg.easy_max)) return 'low';
-  if (s > BigInt(cfg.hard_min)) return 'high';
-  return 'medium';
+  if (s < BigInt(cfg.easy_max))  return cfg.easy_preset   || 'low';
+  if (s > BigInt(cfg.hard_min))  return cfg.hard_preset   || 'high';
+  return cfg.medium_preset || 'medium';
 }

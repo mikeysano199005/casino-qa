@@ -37,12 +37,17 @@ export async function handleAdminInteraction(i) {
     if (action === 'toggleprediction') return toggleMatkaPrediction(i);
     if (action === 'amountlimits')     return showAmountLimits(i);
     if (action === 'seteasylimit')     return openEasyLimitModal(i);
+    if (action === 'setmediumlimit')   return openMediumLimitModal(i);
     if (action === 'sethardlimit')     return openHardLimitModal(i);
     if (action === 'toggleamount')     return toggleAmountPresets(i);
   }
   if (i.isModalSubmit() && i.customId === 'admin:easymodal') {
     if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
     return saveEasyLimit(i);
+  }
+  if (i.isModalSubmit() && i.customId === 'admin:mediummodal') {
+    if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
+    return saveMediumLimit(i);
   }
   if (i.isModalSubmit() && i.customId === 'admin:hardmodal') {
     if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
@@ -308,7 +313,7 @@ async function toggleMatkaPrediction(i) {
 
 async function showAmountLimits(i) {
   const { rows } = await q(`SELECT * FROM amount_preset_config WHERE id=1`);
-  const cfg = rows[0] ?? { enabled: false, easy_max: 10000, hard_min: 20000 };
+  const cfg = rows[0] ?? { enabled: false, easy_max: 10000, hard_min: 20000, easy_preset: 'low', medium_preset: 'medium', hard_preset: 'high' };
   const easyRs = Math.round(Number(cfg.easy_max) / 100);
   const hardRs = Math.round(Number(cfg.hard_min) / 100);
   await i.reply({
@@ -318,14 +323,15 @@ async function showAmountLimits(i) {
       .setTitle('💵 Amount-Based Presets')
       .setDescription(cfg.enabled ? '✅ **Enabled**' : '❌ **Disabled**')
       .addFields(
-        { name: `Easy  (< ₹${easyRs})`,                    value: 'Preset: **low**',    inline: true },
-        { name: `Medium  (₹${easyRs} – ₹${hardRs})`,       value: 'Preset: **medium**', inline: true },
-        { name: `Hard  (> ₹${hardRs})`,                     value: 'Preset: **high**',   inline: true },
+        { name: `Easy  (< ₹${easyRs})`,              value: `Preset: **${cfg.easy_preset || 'low'}**`,    inline: true },
+        { name: `Medium  (₹${easyRs} – ₹${hardRs})`, value: `Preset: **${cfg.medium_preset || 'medium'}**`, inline: true },
+        { name: `Hard  (> ₹${hardRs})`,              value: `Preset: **${cfg.hard_preset || 'high'}**`,   inline: true },
       )
       .setFooter({ text: 'Applies to Dice, Slots, Blackjack, Mines. Overrides per-game preset when enabled.' })],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('admin:seteasylimit').setLabel('Easy Preset').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('admin:sethardlimit').setLabel('Hard Preset').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('admin:seteasylimit').setLabel('⚙️ Easy').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('admin:setmediumlimit').setLabel('⚙️ Medium').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('admin:sethardlimit').setLabel('⚙️ Hard').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('admin:toggleamount')
         .setLabel(cfg.enabled ? '🔴 Disable' : '🟢 Enable')
         .setStyle(cfg.enabled ? ButtonStyle.Secondary : ButtonStyle.Primary),
@@ -334,39 +340,74 @@ async function showAmountLimits(i) {
 }
 
 function openEasyLimitModal(i) {
-  const m = new ModalBuilder().setCustomId('admin:easymodal').setTitle('Easy Preset — Amount Limit');
+  const m = new ModalBuilder().setCustomId('admin:easymodal').setTitle('Easy Tier — Configure');
+  m.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('amount').setLabel('Amount less than (₹)?')
+        .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 100')
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('preset').setLabel('Preset (house/low/medium/high/extreme)')
+        .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. low').setValue('low')
+    ),
+  );
+  return i.showModal(m);
+}
+
+function openMediumLimitModal(i) {
+  const m = new ModalBuilder().setCustomId('admin:mediummodal').setTitle('Medium Tier — Configure');
   m.addComponents(new ActionRowBuilder().addComponents(
-    new TextInputBuilder().setCustomId('amount').setLabel('Amount less than (₹)?')
-      .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 100')
+    new TextInputBuilder().setCustomId('preset').setLabel('Preset (house/low/medium/high/extreme)')
+      .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. medium').setValue('medium')
   ));
   return i.showModal(m);
 }
 
 function openHardLimitModal(i) {
-  const m = new ModalBuilder().setCustomId('admin:hardmodal').setTitle('Hard Preset — Amount Limit');
-  m.addComponents(new ActionRowBuilder().addComponents(
-    new TextInputBuilder().setCustomId('amount').setLabel('Amount greater than (₹)?')
-      .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 200')
-  ));
+  const m = new ModalBuilder().setCustomId('admin:hardmodal').setTitle('Hard Tier — Configure');
+  m.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('amount').setLabel('Amount greater than (₹)?')
+        .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 200')
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('preset').setLabel('Preset (house/low/medium/high/extreme)')
+        .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. high').setValue('high')
+    ),
+  );
   return i.showModal(m);
 }
 
+const VALID_PRESETS = new Set(['house', 'low', 'medium', 'high', 'extreme', 'prediction']);
+
 async function saveEasyLimit(i) {
-  const rs = Number(i.fields.getTextInputValue('amount'));
-  if (!Number.isFinite(rs) || rs <= 0) return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  const rs     = Number(i.fields.getTextInputValue('amount'));
+  const preset = i.fields.getTextInputValue('preset').trim().toLowerCase();
+  if (!Number.isFinite(rs) || rs <= 0)  return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  if (!VALID_PRESETS.has(preset))        return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
   const paise = Math.round(rs * 100);
-  await q(`UPDATE amount_preset_config SET easy_max=$1, updated_by=$2, updated_at=now() WHERE id=1`, [paise, i.user.id]);
+  await q(`UPDATE amount_preset_config SET easy_max=$1, easy_preset=$2, updated_by=$3, updated_at=now() WHERE id=1`, [paise, preset, i.user.id]);
   invalidateAmountPreset();
-  await i.reply({ ephemeral: true, content: `✅ Easy preset: bets **< ₹${rs}** → **low** preset` });
+  await i.reply({ ephemeral: true, content: `✅ Easy: bets **< ₹${rs}** → **${preset}** preset` });
+}
+
+async function saveMediumLimit(i) {
+  const preset = i.fields.getTextInputValue('preset').trim().toLowerCase();
+  if (!VALID_PRESETS.has(preset)) return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
+  await q(`UPDATE amount_preset_config SET medium_preset=$1, updated_by=$2, updated_at=now() WHERE id=1`, [preset, i.user.id]);
+  invalidateAmountPreset();
+  await i.reply({ ephemeral: true, content: `✅ Medium tier → **${preset}** preset` });
 }
 
 async function saveHardLimit(i) {
-  const rs = Number(i.fields.getTextInputValue('amount'));
-  if (!Number.isFinite(rs) || rs <= 0) return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  const rs     = Number(i.fields.getTextInputValue('amount'));
+  const preset = i.fields.getTextInputValue('preset').trim().toLowerCase();
+  if (!Number.isFinite(rs) || rs <= 0)  return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  if (!VALID_PRESETS.has(preset))        return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
   const paise = Math.round(rs * 100);
-  await q(`UPDATE amount_preset_config SET hard_min=$1, updated_by=$2, updated_at=now() WHERE id=1`, [paise, i.user.id]);
+  await q(`UPDATE amount_preset_config SET hard_min=$1, hard_preset=$2, updated_by=$3, updated_at=now() WHERE id=1`, [paise, preset, i.user.id]);
   invalidateAmountPreset();
-  await i.reply({ ephemeral: true, content: `✅ Hard preset: bets **> ₹${rs}** → **high** preset` });
+  await i.reply({ ephemeral: true, content: `✅ Hard: bets **> ₹${rs}** → **${preset}** preset` });
 }
 
 async function toggleAmountPresets(i) {
