@@ -18,6 +18,7 @@ import * as ipl     from './games/ipl.js';
 import * as colour  from './games/colour.js';
 import * as crash   from './games/crash.js';
 import { handleAdminInteraction, postAdminPanel } from './admin/adminPanel.js';
+import { handleSlotsAdminInteraction, postSlotsAdminPanel } from './admin/slotsAdmin.js';
 import { handleIplAdmin } from './admin/iplAdmin.js';
 import { botHeartbeat } from './admin/logs.js';
 import { startLiveDashboard } from './admin/liveDashboard.js';
@@ -47,6 +48,7 @@ const HANDLERS = {
   wd:         handleAdminInteraction,
   admin:      handleAdminInteraction,
   userpanel:  handleAdminInteraction, // delegated inside handleAdminInteraction
+  slotsadmin: handleSlotsAdminInteraction,
 };
 
 client.on(Events.InteractionCreate, async (i) => {
@@ -122,6 +124,7 @@ client.once(Events.ClientReady, async () => {
   if (process.env.CH_IPL)   startIplLoop(client);
 
   await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
+  await safePanel('1503762578357223629', postSlotsAdminPanel);
 
   if (process.env.CH_LIVE_DASHBOARD)
     startLiveDashboard(client, process.env.CH_LIVE_DASHBOARD).catch(console.error);

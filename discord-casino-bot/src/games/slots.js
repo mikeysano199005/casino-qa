@@ -9,9 +9,10 @@ import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
 const lastBet = new Map(); // discordId -> amount (₹)
+export const slotsForced = new Map(); // discordId -> forced outcome override
 
 // Symbol weights and 3-of-a-kind paytable.
-const SYMBOLS = [
+export const SYMBOLS = [
   { s: '🍒', w: 30, pay: 5  },
   { s: '🍋', w: 25, pay: 8  },
   { s: '🔔', w: 18, pay: 12 },
@@ -101,7 +102,24 @@ async function executeSpin(i, amount) {
   const preset = (await getUserPreset(u.id, 'slots')) ?? await getPreset('slots');
 
   let reels;
-  if (preset === 'low' && Math.random() < 0.4) {
+  const forced = slotsForced.get(i.user.id);
+  if (forced) {
+    if (forced.type === 'symbol') {
+      reels = [forced.symbol, forced.symbol, forced.symbol];
+      slotsForced.delete(i.user.id);
+    } else if (forced.type === 'win') {
+      const sym = pickSymbol(rngFloat(seed, i.user.id, 0));
+      reels = [sym, sym, sym];
+      forced.remaining--;
+      if (forced.remaining <= 0) slotsForced.delete(i.user.id);
+    } else if (forced.type === 'lose') {
+      reels = [pickSymbol(rngFloat(seed,'a',0)), pickSymbol(rngFloat(seed,'b',1)), pickSymbol(rngFloat(seed,'c',2))];
+      if (reels[0].s === reels[1].s) reels[1] = SYMBOLS[(SYMBOLS.indexOf(reels[1]) + 1) % SYMBOLS.length];
+      if (reels[1].s === reels[2].s || reels[0].s === reels[2].s) reels[2] = SYMBOLS[(SYMBOLS.indexOf(reels[2]) + 2) % SYMBOLS.length];
+      forced.remaining--;
+      if (forced.remaining <= 0) slotsForced.delete(i.user.id);
+    }
+  } else if (preset === 'low' && Math.random() < 0.4) {
     const sym = pickSymbol(rngFloat(seed, i.user.id, 0));
     reels = [sym, sym, sym];                    // forced 3-of-a-kind
   } else if (preset === 'extreme') {
