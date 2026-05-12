@@ -16,13 +16,14 @@ export async function handleUserPanelInteraction(i) {
 
   if (i.isButton()) {
     const [, action, ...rest] = i.customId.split(':');
-    if (action === 'lookup')  return openLookupModal(i);
-    if (action === 'direct')  return showUserPanel(i, rest[0], false); // one-tap from bet logs
-    if (action === 'refresh') return showUserPanel(i, rest[0], true);
-    if (action === 'credit')  return openCreditModal(i, rest[0]);
-    if (action === 'debit')   return openDebitModal(i, rest[0]);
-    if (action === 'ban')     return toggleBan(i, rest[0]);
-    if (action === 'setvip')  return openVipModal(i, rest[0]);
+    if (action === 'lookup')     return openLookupModal(i);
+    if (action === 'direct')     return showUserPanel(i, rest[0], false); // one-tap from bet logs
+    if (action === 'refresh')    return showUserPanel(i, rest[0], true);
+    if (action === 'credit')     return openCreditModal(i, rest[0]);
+    if (action === 'debit')      return openDebitModal(i, rest[0]);
+    if (action === 'ban')        return toggleBan(i, rest[0]);
+    if (action === 'setvip')     return openVipModal(i, rest[0]);
+    if (action === 'bethistory') return showBetHistory(i, rest[0], Number(rest[1] ?? 0));
   }
   if (i.isModalSubmit()) {
     const [, action, ...rest] = i.customId.split(':');
@@ -96,7 +97,7 @@ async function showUserPanel(i, discordId, isRefresh) {
       { name: 'Internal ID',   value: `\`${u.id}\``,                   inline: false },
     );
 
-  const row = new ActionRowBuilder().addComponents(
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`userpanel:credit:${u.id}`).setLabel('💸 Credit').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`userpanel:debit:${u.id}`).setLabel('📤 Debit').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`userpanel:ban:${u.id}`).setLabel(u.status === 'banned' ? '✅ Unban' : '🚫 Ban')
@@ -104,8 +105,11 @@ async function showUserPanel(i, discordId, isRefresh) {
     new ButtonBuilder().setCustomId(`userpanel:setvip:${u.id}`).setLabel('⭐ VIP').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`userpanel:refresh:${discordId}`).setLabel('🔄').setStyle(ButtonStyle.Secondary),
   );
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`userpanel:bethistory:${u.id}:0`).setLabel('📜 Bet History').setStyle(ButtonStyle.Secondary),
+  );
 
-  const payload = { ephemeral: true, embeds: [embed], components: [row] };
+  const payload = { ephemeral: true, embeds: [embed], components: [row1, row2] };
   return isRefresh ? i.update(payload) : i.reply(payload);
 }
 
@@ -186,6 +190,58 @@ async function toggleBan(i, userId) {
       : '✅ Your account has been reinstated. You may now play again.'
     );
   } catch {}
+}
+
+// ─── Bet History ─────────────────────────────────────────────────────
+
+async function showBetHistory(i, userId, page) {
+  const PAGE = 10;
+  const offset = page * PAGE;
+
+  const { rows: bets } = await q(
+    `SELECT game, stake, payout, result, selection, settled_at
+     FROM bets
+     WHERE user_id = $1 AND result != 'pending'
+     ORDER BY settled_at DESC
+     LIMIT $2 OFFSET $3`,
+    [userId, PAGE + 1, offset]
+  );
+
+  const hasNext = bets.length > PAGE;
+  const page_bets = bets.slice(0, PAGE);
+
+  const { rows: uRow } = await q(`SELECT username FROM users WHERE id = $1`, [userId]);
+  const username = uRow[0]?.username ?? userId;
+
+  const lines = page_bets.map((b, idx) => {
+    const stake  = fmt(BigInt(b.stake));
+    const payout = fmt(BigInt(b.payout || 0));
+    const icon   = b.result === 'win' ? '✅' : b.result === 'push' ? '↔️' : '❌';
+    const time   = b.settled_at ? `<t:${Math.floor(new Date(b.settled_at).getTime() / 1000)}:d>` : '—';
+    const game   = b.game.charAt(0).toUpperCase() + b.game.slice(1);
+    return `${icon} **${game}** • Stake ${stake} • Payout ${payout} • ${time}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setColor(Colors.Gold)
+    .setTitle(`📜 Bet History — ${username}`)
+    .setDescription(lines.join('\n') || 'No bets found.')
+    .setFooter({ text: `Page ${page + 1} • Showing ${offset + 1}–${offset + page_bets.length}` });
+
+  const nav = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`userpanel:bethistory:${userId}:${page - 1}`)
+      .setLabel('◀ Prev')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page === 0),
+    new ButtonBuilder()
+      .setCustomId(`userpanel:bethistory:${userId}:${page + 1}`)
+      .setLabel('Next ▶')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!hasNext),
+  );
+
+  await i.reply({ ephemeral: true, embeds: [embed], components: [nav] });
 }
 
 // ─── VIP tier ────────────────────────────────────────────────────────
