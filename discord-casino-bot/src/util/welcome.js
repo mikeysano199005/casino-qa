@@ -37,3 +37,34 @@ export async function checkAndSendWelcome(client, discordUser) {
     // User has DMs disabled — silently skip
   }
 }
+
+// Fires on first interaction after being away 7+ days.
+// Uses last_seen (which upsertUser does not update) so the old value is still
+// readable here even though upsertUser already ran earlier in the request.
+export async function checkAndSendWelcomeBack(client, discordUser) {
+  const { rows } = await q(
+    `UPDATE users SET last_seen = NOW()
+     WHERE discord_id = $1
+       AND welcome_sent = TRUE
+       AND (last_seen IS NULL OR last_seen < NOW() - INTERVAL '7 days')
+     RETURNING id`,
+    [discordUser.id]
+  );
+  if (!rows[0]) return;
+
+  const { rows: w } = await q(`SELECT available FROM wallets WHERE user_id = $1`, [rows[0].id]);
+  const balance = w[0] ? (Number(BigInt(w[0].available)) / 100).toFixed(2) : '0.00';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x57F287)
+    .setTitle('👋 Welcome back!')
+    .setDescription([
+      'Your account is safe — nothing was lost.',
+      '',
+      `💰 **Balance: ₹${balance}**`,
+      '',
+      'Head to the casino channels to keep playing!',
+    ].join('\n'));
+
+  discordUser.send({ embeds: [embed] }).catch(() => {});
+}

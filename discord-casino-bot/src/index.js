@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, GatewayIntentBits, Partials, Events, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import { q } from './db/index.js';
 import { startColourLoop } from './games/colour.js';
 import { startCrashLoop }  from './games/crash.js';
@@ -22,10 +22,10 @@ import { handleIplAdmin } from './admin/iplAdmin.js';
 import { botHeartbeat } from './admin/logs.js';
 import { startLiveDashboard } from './admin/liveDashboard.js';
 import { startWebhookServer } from './cashfree.js';
-import { checkAndSendWelcome } from './util/welcome.js';
+import { checkAndSendWelcome, checkAndSendWelcomeBack } from './util/welcome.js';
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
   partials: [Partials.Channel],
 });
 
@@ -56,8 +56,9 @@ client.on(Events.InteractionCreate, async (i) => {
     const fn = HANDLERS[ns];
     if (!fn) return;
     await fn(i);
-    // Fire-and-forget: send welcome DM on first-ever interaction
+    // Fire-and-forget: send welcome DM on first-ever interaction, or welcome-back after 7-day absence
     checkAndSendWelcome(i.client, i.user).catch(() => {});
+    checkAndSendWelcomeBack(i.client, i.user).catch(() => {});
   } catch (e) {
     console.error('[interaction error]', i.customId, e.message, e.stack);
     try {
@@ -70,32 +71,6 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-client.on(Events.GuildMemberAdd, async (member) => {
-  try {
-    const { rows } = await q(
-      `SELECT u.*, w.available FROM users u
-       JOIN wallets w ON w.user_id = u.id
-       WHERE u.discord_id = $1 AND u.welcome_sent = TRUE`,
-      [member.user.id]
-    );
-    if (!rows[0]) return; // first-time join, welcome fires on first interaction
-    const u = rows[0];
-    const balanceRs = (Number(BigInt(u.available)) / 100).toFixed(2);
-    const embed = new EmbedBuilder()
-      .setColor(0x57F287)
-      .setTitle('👋 Welcome back!')
-      .setDescription([
-        `Your account is safe — nothing was lost.`,
-        ``,
-        `💰 **Balance: ₹${balanceRs}**`,
-        ``,
-        `Head to the casino channels to keep playing!`,
-      ].join('\n'));
-    await member.user.send({ embeds: [embed] }).catch(() => {});
-  } catch (e) {
-    console.warn('[guildMemberAdd]', e.message);
-  }
-});
 
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
