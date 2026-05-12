@@ -77,7 +77,7 @@ function upiModal(i) {
   m.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('amount').setLabel('Amount in ₹').setStyle(TextInputStyle.Short).setRequired(true)
-      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 200}`)),
+      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 500}`)),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('upi').setLabel('UPI ID').setStyle(TextInputStyle.Short).setRequired(true)
       .setPlaceholder('example@upi')),
@@ -91,7 +91,7 @@ function bankModal(i) {
   m.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('amount').setLabel('Amount in ₹').setStyle(TextInputStyle.Short).setRequired(true)
-      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 200}`)),
+      .setPlaceholder(`min ₹${process.env.MIN_WITHDRAW || 500}`)),
     new ActionRowBuilder().addComponents(new TextInputBuilder()
       .setCustomId('bank_name').setLabel('Bank Name').setStyle(TextInputStyle.Short).setRequired(true)
       .setPlaceholder('e.g. State Bank of India')),
@@ -161,7 +161,7 @@ async function submitWithdraw(i, method) {
   await i.deferReply({ ephemeral: true });
 
   const amount = Number(i.fields.getTextInputValue('amount'));
-  const min = Number(process.env.MIN_WITHDRAW || 200);
+  const min = Number(process.env.MIN_WITHDRAW || 500);
   if (!Number.isFinite(amount) || amount < min)
     return i.editReply({ content: `Minimum withdraw ₹${min}.` });
 

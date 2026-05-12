@@ -13,7 +13,7 @@ export function postPanel(channel) {
           '',
           '**Limits**',
           `• Min bet ₹${process.env.MIN_BET || 10} • Max bet ₹${process.env.MAX_BET || 10000}`,
-          `• Min deposit ₹${process.env.MIN_DEPOSIT || 100} • Min withdraw ₹${process.env.MIN_WITHDRAW || 200}`,
+          `• Min deposit ₹${process.env.MIN_DEPOSIT || 100} • Min withdraw ₹${process.env.MIN_WITHDRAW || 500}`,
           `• Withdraw cooldown ${process.env.WITHDRAW_COOLDOWN_HOURS || 24}h.`,
           '',
           '**Need help?** Click the button below to open a private support ticket.',
