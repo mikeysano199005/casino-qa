@@ -9,6 +9,8 @@ import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
+const lastBet = new Map(); // discordId -> { amount, mines }
+
 // ─── Session helpers (DB-backed, survives restarts) ──────────────────
 
 function sessionToData(s) {
@@ -72,6 +74,7 @@ export async function handleInteraction(i) {
     const [, action, ...rest] = i.customId.split(':');
     if (action === 'start')   return openModal(i);
     if (action === 'rules')   return showRules(i);
+    if (action === 'rebet')   return rebet(i);
     if (action === 'tile')    return revealTile(i, +rest[0], +rest[1]);
     if (action === 'cashout') return cashOut(i);
   }
@@ -108,9 +111,20 @@ function openModal(i) {
 
 async function startGame(i) {
   await i.deferReply({ ephemeral: true });
+  const amount = Number(i.fields.getTextInputValue('amount'));
+  const mines  = Math.min(19, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
+  await executeStartGame(i, amount, mines);
+}
+
+async function rebet(i) {
+  await i.deferReply({ ephemeral: true });
+  const last = lastBet.get(i.user.id);
+  if (!last) return i.editReply({ content: '⚠️ No previous game found. Use 💣 New Game first to set your bet.' });
+  await executeStartGame(i, last.amount, last.mines);
+}
+
+async function executeStartGame(i, amount, mines) {
   try {
-    const amount = Number(i.fields.getTextInputValue('amount'));
-    const mines  = Math.min(19, Math.max(1, Math.floor(Number(i.fields.getTextInputValue('mines')))));
     const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
     if (!Number.isFinite(amount) || amount < min || amount > max)
       return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
@@ -153,7 +167,9 @@ async function startGame(i) {
     const s = { userId: u.id, username: i.user.username, stake, mines, bombs,
       revealed: new Set(), seed, preset, betId: br[0].id, multiplier: 1.0 };
     await putSession(u.id, i.user.id, s);
-    // result logged after settlement in revealTile/cashOut
+
+    lastBet.set(i.user.id, { amount, mines });
+
     await i.editReply(renderBoard(s));
   } catch (e) {
     console.error('[mines startGame]', e);
@@ -165,7 +181,7 @@ function payoutMultiplier(safeRevealed, mines) {
   return +Math.pow(20 / (20 - mines), safeRevealed) * 0.97;
 }
 
-// Grid is 4×5 = 20 tiles (indices 0-19) + cashout row = exactly 5 Discord action rows
+// Grid is 4×5 = 20 tiles (indices 0-19) + action row = exactly 5 Discord action rows
 function renderBoard(s, revealAll = false) {
   const rows = [];
   for (let r = 0; r < 4; r++) {
@@ -186,11 +202,20 @@ function renderBoard(s, revealAll = false) {
     }
     rows.push(row);
   }
-  rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('mines:cashout')
-      .setLabel(`Cash Out — ${fmt(BigInt(Math.floor(Number(s.stake) * s.multiplier)))}`)
-      .setStyle(ButtonStyle.Primary).setDisabled(revealAll || s.revealed.size === 0),
-  ));
+
+  if (revealAll) {
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('mines:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('mines:start').setLabel('💣 Change Bet').setStyle(ButtonStyle.Secondary),
+    ));
+  } else {
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('mines:cashout')
+        .setLabel(`Cash Out — ${fmt(BigInt(Math.floor(Number(s.stake) * s.multiplier)))}`)
+        .setStyle(ButtonStyle.Primary).setDisabled(s.revealed.size === 0),
+    ));
+  }
+
   return {
     embeds: [new EmbedBuilder().setColor(Colors.Gold)
       .setTitle('💣 Mines')

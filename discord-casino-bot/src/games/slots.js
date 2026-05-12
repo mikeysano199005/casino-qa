@@ -4,10 +4,11 @@ import {
 } from 'discord.js';
 import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset } from '../repo.js';
-import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
+
+const lastBet = new Map(); // discordId -> amount (₹)
 
 // Symbol weights and 3-of-a-kind paytable.
 const SYMBOLS = [
@@ -42,6 +43,7 @@ export function postPanel(channel) {
 export async function handleInteraction(i) {
   if (i.isButton()) {
     if (i.customId === 'slots:rules') return showRules(i);
+    if (i.customId === 'slots:rebet') return rebet(i);
     return openModal(i);
   }
   if (i.isModalSubmit()) return spin(i);
@@ -72,6 +74,16 @@ function openModal(i) {
 
 async function spin(i) {
   const amount = Number(i.fields.getTextInputValue('amount'));
+  await executeSpin(i, amount);
+}
+
+async function rebet(i) {
+  const amount = lastBet.get(i.user.id);
+  if (!amount) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🎰 Spin first to set your stake.' });
+  await executeSpin(i, amount);
+}
+
+async function executeSpin(i, amount) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
     return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
@@ -86,13 +98,22 @@ async function spin(i) {
   } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
 
   const seed = newServerSeed();
-  const preset = (await resolveAmountPreset(stake)) ?? await getPreset('slots');
+  const preset = await getPreset('slots');
 
   let reels;
   if (preset === 'low' && Math.random() < 0.4) {
     const sym = pickSymbol(rngFloat(seed, i.user.id, 0));
     reels = [sym, sym, sym];                    // forced 3-of-a-kind
-  } else if ((preset === 'high' || preset === 'extreme') && Math.random() < 0.99) {
+  } else if (preset === 'extreme') {
+    // Always lose — force all 3 reels to be different
+    reels = [
+      pickSymbol(rngFloat(seed, 'a', 0)),
+      pickSymbol(rngFloat(seed, 'b', 1)),
+      pickSymbol(rngFloat(seed, 'c', 2)),
+    ];
+    if (reels[0].s === reels[1].s) reels[1] = SYMBOLS[(SYMBOLS.indexOf(reels[1]) + 1) % SYMBOLS.length];
+    if (reels[1].s === reels[2].s || reels[0].s === reels[2].s) reels[2] = SYMBOLS[(SYMBOLS.indexOf(reels[2]) + 2) % SYMBOLS.length];
+  } else if (preset === 'high' && Math.random() < 0.99) {
     reels = [
       pickSymbol(rngFloat(seed, 'a', 0)),
       pickSymbol(rngFloat(seed, 'b', 1)),
@@ -102,7 +123,6 @@ async function spin(i) {
       reels[2] = SYMBOLS[(SYMBOLS.indexOf(reels[2]) + 1) % SYMBOLS.length];
     }
   } else if (preset === 'medium') {
-    // medium: 50% chance to force a match, otherwise natural roll
     if (rngFloat(seed, 'med', 0) < 0.5) {
       const sym = pickSymbol(rngFloat(seed, i.user.id, 0));
       reels = [sym, sym, sym];
@@ -136,11 +156,15 @@ async function spin(i) {
   if (win && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Slots', payout).catch(()=>{});
 
+  lastBet.set(i.user.id, amount);
+
   await i.reply({ ephemeral: true,
     embeds: [new EmbedBuilder().setColor(win ? Colors.Green : Colors.Red)
       .setTitle(`🎰 ${reels.map(r=>r.s).join(' | ')}`)
       .setDescription(win ? `**WIN ${fmt(payout)}**` : 'No match — try again')],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('slots:spin').setLabel('Spin again').setStyle(ButtonStyle.Primary))],
+      new ButtonBuilder().setCustomId('slots:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('slots:spin').setLabel('🎰 Change Bet').setStyle(ButtonStyle.Secondary),
+    )],
   });
 }

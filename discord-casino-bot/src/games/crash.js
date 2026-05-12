@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset } from '../repo.js';
+import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, hash, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
@@ -15,6 +16,7 @@ const BETTING_MS = 15_000; // 15-second betting window before launch
 let state = null;
 const resultMsgIds = [];
 const lastResults  = [];
+const lastBet      = new Map(); // discordId -> amount (₹)
 
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] }).catch(() => null);
@@ -111,6 +113,7 @@ async function renderPanel(channel, forceNew = false) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('crash:bet').setLabel('Place Bet').setStyle(ButtonStyle.Success).setDisabled(!bettingOpen),
+    new ButtonBuilder().setCustomId('crash:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Secondary).setDisabled(!bettingOpen),
     new ButtonBuilder().setCustomId('crash:cashout').setLabel('Cash Out').setStyle(ButtonStyle.Primary).setDisabled(!cashoutOpen),
     new ButtonBuilder().setCustomId('crash:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
   );
@@ -134,6 +137,24 @@ async function tick(channel) {
 
   if (state.phase === 'betting') {
     if (Date.now() >= state.bettingEndsAt) {
+      // If amount presets are enabled and bets exist, re-derive crashAt from median bet amount
+      if (state.bets.length > 0) {
+        const sorted = [...state.bets.map(b => b.stake)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const medianStake = sorted[Math.floor(sorted.length / 2)];
+        const amountPreset = await resolveAmountPreset(medianStake);
+        if (amountPreset) {
+          const r2 = rngFloat(state.serverSeed, 'amt', 0);
+          let m;
+          if (amountPreset === 'house')        m = Math.max(1.00, 0.99 / Math.max(0.0001, 1 - r2));
+          else if (amountPreset === 'low')     m = 1 + r2 * 9;
+          else if (amountPreset === 'medium')  m = Math.max(1.00, 0.5 + r2 * 5);
+          else if (amountPreset === 'extreme') m = r2 < 0.5 ? 1.00 : 1.02;
+          else                                m = 1.00 + r2 * 0.10;
+          state.crashAt = Math.min(50, Math.round(m * 100) / 100);
+          await q(`UPDATE game_rounds SET outcome=$1 WHERE id=$2`,
+            [JSON.stringify({ crashAt: state.crashAt }), state.round.id]);
+        }
+      }
       state.phase = 'flying';
       state.startedAt = Date.now();
       await renderPanel(channel, true); // forceNew=true: delete betting msg, post fresh flying msg
@@ -145,14 +166,6 @@ async function tick(channel) {
   if (state.phase === 'flying') {
     const elapsed = Date.now() - state.startedAt;
     state.multiplier = multiplierAt(elapsed);
-
-    // Auto cashout
-    for (const b of state.bets) {
-      if (b.auto && !state.cashedOut.has(b.userId) && state.multiplier >= b.auto) {
-        state.cashedOut.add(b.userId);
-        b.cashOutAt = b.auto;
-      }
-    }
 
     if (state.multiplier >= state.crashAt) {
       state.multiplier = state.crashAt;
@@ -205,6 +218,7 @@ export async function handleInteraction(interaction) {
   if (interaction.isButton()) {
     const [, action] = interaction.customId.split(':');
     if (action === 'bet') return openBetModal(interaction);
+    if (action === 'rebet') return reBet(interaction);
     if (action === 'cashout') return cashOut(interaction);
     if (action === 'rules') return showRules(interaction);
   }
@@ -221,15 +235,22 @@ function openBetModal(i) {
         .setStyle(TextInputStyle.Short).setRequired(true)
         .setPlaceholder(`min ₹${process.env.MIN_BET || 1} – max ₹${process.env.MAX_BET || 10000}`)
     ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('auto').setLabel('Auto cash-out at (e.g. 2.0, optional)')
-        .setStyle(TextInputStyle.Short).setRequired(false)
-    ),
   );
   return i.showModal(modal);
 }
 
 async function placeBet(i) {
+  const amount = Number(i.fields.getTextInputValue('amount'));
+  await executePlaceBet(i, amount);
+}
+
+async function reBet(i) {
+  const amount = lastBet.get(i.user.id);
+  if (!amount) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use Place Bet first to set your amount.' });
+  await executePlaceBet(i, amount);
+}
+
+async function executePlaceBet(i, amount) {
   if (!state || state.phase !== 'betting')
     return i.reply({ ephemeral: true, content: '⏱ Betting is closed — wait for the next round.' });
   if (!allow(i.user.id, Number(process.env.MAX_BETS_PER_SECOND || 4)))
@@ -237,8 +258,6 @@ async function placeBet(i) {
   if (state.bets.find(b => b.discordId === i.user.id))
     return i.reply({ ephemeral: true, content: 'You already have a bet this round.' });
 
-  const amount = Number(i.fields.getTextInputValue('amount'));
-  const auto   = Number(i.fields.getTextInputValue('auto')) || null;
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
     return i.reply({ ephemeral: true, content: `Bet ₹${min}–₹${max}.` });
@@ -249,17 +268,18 @@ async function placeBet(i) {
   const stake = toPaise(amount);
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
-      ref: state.round.id, meta: { game: 'crash', auto } });
+      ref: state.round.id, meta: { game: 'crash' } });
   } catch {
     return i.reply({ ephemeral: true, content: '💸 Insufficient balance.' });
   }
   const { rows: br } = await q(
     `INSERT INTO bets(user_id,round_id,game,stake,selection,result) VALUES($1,$2,'crash',$3,$4,'pending') RETURNING id`,
-    [u.id, state.round.id, stake.toString(), { auto }]
+    [u.id, state.round.id, stake.toString(), {}]
   );
-  state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, stake, betId: br[0].id, auto });
+  state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, stake, betId: br[0].id });
   renderPanel(state.channel).catch(() => {}); // update bets count on panel
-  await i.reply({ ephemeral: true, content: `✅ ${fmt(stake)} placed.${auto ? ` Auto cash-out @ ${auto}×.` : ''}` });
+  lastBet.set(i.user.id, amount);
+  await i.reply({ ephemeral: true, content: `✅ ${fmt(stake)} placed.` });
 }
 
 async function cashOut(i) {
@@ -280,7 +300,6 @@ function showRules(i) {
       .addFields(
         { name: 'Objective', value: 'A multiplier starts at **1×** and keeps rising. Cash out before it crashes to win. Wait too long and you lose everything!' },
         { name: 'How to Play', value: '1. Place your bet during the **15-second betting window**\n2. Watch the multiplier climb live\n3. Click **Cash Out** before it crashes\n4. Your payout = stake × multiplier at cashout' },
-        { name: 'Auto Cash-Out', value: 'Set an automatic cash-out target when placing your bet (e.g. **2.0**). The bot will cash you out automatically when it hits that multiplier.' },
         { name: 'Example', value: '• Bet ₹500, cash out at **3.5×** → win **₹1,750**\n• Bet ₹500, crash happens at **2.0×** before you cash out → lose **₹500**' },
         { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
         { name: 'Fairness', value: 'Crash point is determined by a server seed committed before the round starts. Seed is revealed after crash.' },

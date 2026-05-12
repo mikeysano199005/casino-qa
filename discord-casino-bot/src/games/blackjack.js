@@ -4,10 +4,11 @@ import {
 } from 'discord.js';
 import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
-import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
+
+const lastBet = new Map(); // discordId -> amount (₹)
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -95,6 +96,7 @@ export async function handleInteraction(i) {
     const [, action] = i.customId.split(':');
     if (action === 'start')  return openModal(i);
     if (action === 'rules')  return showRules(i);
+    if (action === 'rebet')  return rebet(i);
     if (action === 'hit')    return hit(i);
     if (action === 'stand')  return stand(i);
     if (action === 'double') return double(i);
@@ -129,6 +131,16 @@ function openModal(i) {
 
 async function startHand(i) {
   const amount = Number(i.fields.getTextInputValue('amount'));
+  await executeStartHand(i, amount);
+}
+
+async function rebet(i) {
+  const amount = lastBet.get(i.user.id);
+  if (!amount) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🃏 New Hand first to set your stake.' });
+  await executeStartHand(i, amount);
+}
+
+async function executeStartHand(i, amount) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
     return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
@@ -152,17 +164,16 @@ async function startHand(i) {
       ref: null, meta: { game: 'blackjack' } });
   } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
 
+  lastBet.set(i.user.id, amount);
+
   const seed = newServerSeed();
-  const preset = (await resolveAmountPreset(stake)) ?? await getPreset('blackjack');
+  const preset = await getPreset('blackjack');
   const deck = newDeck(seed);
 
   if (preset === 'low') {
     const idx = deck.findIndex(c => /^(10|A|K|Q|J)/.test(c));
     if (idx > -1) { const card = deck.splice(idx, 1)[0]; deck.unshift(card); }
   } else if (preset === 'high' || preset === 'extreme') {
-    // Give dealer two high cards (near-certain 20/21), player two low cards (stiff hand)
-    // Deal order from end: player[0], player[1], dealer[0], dealer[1]
-    // So push order onto end: dealer[1], dealer[0], player[1], player[0]
     const hi = [], lo = [];
     for (let i = 0; i < deck.length && (hi.length < 2 || lo.length < 2); i++) {
       if (hi.length < 2 && /^(A|10|K|Q|J)/.test(deck[i])) hi.push(deck.splice(i--, 1)[0]);
@@ -181,7 +192,6 @@ async function startHand(i) {
   );
   const s = { userId: u.id, stake, deck, player, dealer, betId: rows[0].id, doubled: false };
   await putSession(u.id, i.user.id, s);
-  // result logged after settlement in finish() / natural BJ below
 
   // Natural blackjack: settle immediately at 3:2
   if (isNatural(player) && !isNatural(dealer)) {
@@ -211,15 +221,20 @@ function render(s, reveal) {
       { name: 'Dealer', value: `${dealerView} (${dealerVal})` },
       { name: 'You',    value: `${s.player.join(' ')} (${handValue(s.player)})` },
     );
-  return {
-    embeds: [e],
-    components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bj:hit').setLabel('Hit').setStyle(ButtonStyle.Primary).setDisabled(reveal),
-      new ButtonBuilder().setCustomId('bj:stand').setLabel('Stand').setStyle(ButtonStyle.Secondary).setDisabled(reveal),
-      new ButtonBuilder().setCustomId('bj:double').setLabel('Double').setStyle(ButtonStyle.Success)
-        .setDisabled(reveal || s.player.length !== 2 || s.doubled),
-    )],
-  };
+
+  const row = reveal
+    ? new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('bj:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('bj:start').setLabel('🃏 Change Bet').setStyle(ButtonStyle.Secondary),
+      )
+    : new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('bj:hit').setLabel('Hit').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('bj:stand').setLabel('Stand').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('bj:double').setLabel('Double').setStyle(ButtonStyle.Success)
+          .setDisabled(s.player.length !== 2 || s.doubled),
+      );
+
+  return { embeds: [e], components: [row] };
 }
 
 async function hit(i) {

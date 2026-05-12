@@ -19,6 +19,7 @@ const OPTIONS = [
 
 let state = null;
 const lastResults = [];
+const lastBet     = new Map(); // discordId -> { key, amount }
 const resultMsgIds = [];
 const allPanelMsgIds = new Set(); // track every panel message ever posted so we can purge them
 
@@ -175,6 +176,7 @@ export async function handleInteraction(interaction) {
   if (interaction.isButton()) {
     const [, action, key] = interaction.customId.split(':');
     if (action === 'bet') return openBetModal(interaction, key);
+    if (action === 'rebet') return reBet(interaction);
     if (action === 'history') return showHistory(interaction);
     if (action === 'rules') return showRules(interaction);
   }
@@ -196,7 +198,18 @@ function openBetModal(i, key) {
   return i.showModal(modal);
 }
 
+async function reBet(i) {
+  const last = lastBet.get(i.user.id);
+  if (!last) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Place a bet first to use Bet Again.' });
+  await executePlaceBet(i, last.key, last.amount);
+}
+
 async function placeBet(i, key) {
+  const amount = Number(i.fields.getTextInputValue('amount'));
+  await executePlaceBet(i, key, amount);
+}
+
+async function executePlaceBet(i, key, amount) {
   if (!allow(i.user.id, Number(process.env.MAX_BETS_PER_SECOND || 4)))
     return i.reply({ ephemeral: true, content: 'Slow down — too many bets.' });
 
@@ -204,7 +217,6 @@ async function placeBet(i, key) {
   const remaining = state.endsAt - Date.now();
   if (remaining < 1500) return i.reply({ ephemeral: true, content: '⏱ Round closing — bets locked.' });
 
-  const amount = Number(i.fields.getTextInputValue('amount'));
   const min = Number(process.env.MIN_BET || 10);
   const max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
@@ -233,8 +245,14 @@ async function placeBet(i, key) {
   state.pool[key] += stake;
   state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, key, stake, betId: br[0].id });
 
+  lastBet.set(i.user.id, { key, amount });
+
+  const optionIcon = OPTIONS.find(o => o.key === key).color;
   await i.reply({ ephemeral: true,
-    content: `✅ Bet placed: ${fmt(stake)} on **${key.toUpperCase()}**.`
+    content: `✅ Bet placed: ${fmt(stake)} on **${key.toUpperCase()}** ${optionIcon}`,
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('colour:rebet').setLabel('🔁 Bet Again (same)').setStyle(ButtonStyle.Secondary),
+    )],
   });
 }
 

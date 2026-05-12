@@ -9,6 +9,8 @@ import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
 
+const lastBet = new Map(); // discordId -> { amount, side, target }
+
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎲 Dice')
@@ -23,6 +25,7 @@ export function postPanel(channel) {
 export async function handleInteraction(i) {
   if (i.isButton()) {
     if (i.customId === 'dice:rules') return showRules(i);
+    if (i.customId === 'dice:rebet') return rebet(i);
     return openModal(i);
   }
   if (i.isModalSubmit()) return play(i);
@@ -61,6 +64,16 @@ async function play(i) {
   const amount = Number(i.fields.getTextInputValue('amount'));
   const side   = i.fields.getTextInputValue('side').trim().toUpperCase();
   const target = Math.floor(Number(i.fields.getTextInputValue('target')));
+  await executeBet(i, amount, side, target);
+}
+
+async function rebet(i) {
+  const last = lastBet.get(i.user.id);
+  if (!last) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🎲 Roll first to set your bet.' });
+  await executeBet(i, last.amount, last.side, last.target);
+}
+
+async function executeBet(i, amount, side, target) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
     return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
@@ -85,7 +98,6 @@ async function play(i) {
   const r = rngFloat(seed, i.user.id, 0);
   let roll = Math.floor(r * 99) + 1; // 1-99
 
-  // Preset bias — use seeded RNG so results are reproducible
   const bias = rngFloat(seed, 'bias', 0);
   const jitter = Math.floor(rngFloat(seed, 'jitter', 0) * 5);
   if (preset === 'low'  && bias < 0.9)  roll = side === 'UNDER' ? Math.max(1, target - 1 - jitter) : target + 1 + jitter;
@@ -98,7 +110,7 @@ async function play(i) {
   await applyTx({ userId: u.id, type: win ? 'win' : 'bet', amount: win ? payout : 0n,
     lockDelta: -stake, ref: null,
     meta: { game: 'dice', roll, side, target, multiplier: payoutMult.toFixed(2) }});
-  const { rows } = await q(
+  await q(
     `INSERT INTO bets(user_id,game,stake,selection,payout,result,settled_at)
      VALUES($1,'dice',$2,$3,$4,$5,now()) RETURNING id`,
     [u.id, stake.toString(), { side, target, roll }, payout.toString(), win ? 'win' : 'loss']
@@ -107,12 +119,16 @@ async function play(i) {
   if (win && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Dice', payout).catch(()=>{});
 
+  lastBet.set(i.user.id, { amount, side, target });
+
   const e = new EmbedBuilder()
     .setColor(win ? Colors.Green : Colors.Red)
     .setTitle(`🎲 Roll: ${roll}`)
     .setDescription(`${side} ${target} • Multiplier ${payoutMult.toFixed(2)}×\n${win ? `**WIN ${fmt(payout)}**` : `**Loss**`}`);
   await i.reply({ ephemeral: true, embeds: [e],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('dice:play').setLabel('Rebet').setStyle(ButtonStyle.Primary))]
+      new ButtonBuilder().setCustomId('dice:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('dice:play').setLabel('🎲 Change Bet').setStyle(ButtonStyle.Secondary),
+    )]
   });
 }

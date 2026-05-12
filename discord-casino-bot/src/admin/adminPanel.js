@@ -327,7 +327,7 @@ async function showAmountLimits(i) {
         { name: `Medium  (₹${easyRs} – ₹${hardRs})`, value: `Preset: **${cfg.medium_preset || 'medium'}**`, inline: true },
         { name: `Hard  (> ₹${hardRs})`,              value: `Preset: **${cfg.hard_preset || 'high'}**`,   inline: true },
       )
-      .setFooter({ text: 'Applies to Dice, Slots, Blackjack, Mines. Overrides per-game preset when enabled.' })],
+      .setFooter({ text: 'Applies to Dice, Mines, Crash. Overrides per-game preset when enabled.' })],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('admin:seteasylimit').setLabel('⚙️ Easy').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('admin:setmediumlimit').setLabel('⚙️ Medium').setStyle(ButtonStyle.Primary),
