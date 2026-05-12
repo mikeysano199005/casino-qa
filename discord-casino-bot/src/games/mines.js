@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
+import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
@@ -134,7 +135,7 @@ async function startGame(i) {
 
     const stake = toPaise(amount);
     const seed = newServerSeed();
-    const preset = await getPreset('mines');
+    const preset = (await resolveAmountPreset(stake)) ?? await getPreset('mines');
     const bombs = new Set();
     let n = 0;
     while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 20));

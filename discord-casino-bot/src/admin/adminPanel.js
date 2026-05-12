@@ -5,6 +5,7 @@ import { fmt } from '../util/money.js';
 import { logAuditMsg } from './logs.js';
 import { handleUserPanelInteraction } from './userPanel.js';
 import { togglePrediction, getPredictionState } from '../games/matka.js';
+import { invalidateAmountPreset } from '../util/amountPreset.js';
 
 const adminIds = () => (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = (id) => adminIds().includes(id);
@@ -34,6 +35,18 @@ export async function handleAdminInteraction(i) {
     if (action === 'newpromo')         return openPromoModal(i);
     if (action === 'delpromo')         return deletePromo(i, rest[0]);
     if (action === 'toggleprediction') return toggleMatkaPrediction(i);
+    if (action === 'amountlimits')     return showAmountLimits(i);
+    if (action === 'seteasylimit')     return openEasyLimitModal(i);
+    if (action === 'sethardlimit')     return openHardLimitModal(i);
+    if (action === 'toggleamount')     return toggleAmountPresets(i);
+  }
+  if (i.isModalSubmit() && i.customId === 'admin:easymodal') {
+    if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
+    return saveEasyLimit(i);
+  }
+  if (i.isModalSubmit() && i.customId === 'admin:hardmodal') {
+    if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
+    return saveHardLimit(i);
   }
   if (i.isModalSubmit() && i.customId === 'admin:newpromomodal') {
     if (!isAdmin(i.user.id)) return i.reply({ ephemeral: true, content: 'Not authorised.' });
@@ -102,6 +115,7 @@ export async function postAdminPanel(channel) {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('ipladmin:list').setLabel('🏏 IPL Betting').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('admin:toggleprediction').setLabel('🔮 Matka Predictions').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('admin:amountlimits').setLabel('💵 Amount Limits').setStyle(ButtonStyle.Secondary),
       ),
     ],
   });
@@ -288,4 +302,76 @@ async function deletePromo(i, promoId) {
 async function toggleMatkaPrediction(i) {
   const newState = togglePrediction();
   await i.reply({ ephemeral: true, content: `🔮 Matka predictions are now **${newState ? 'ON ✅' : 'OFF ❌'}**` });
+}
+
+// ─── Amount-based presets ─────────────────────────────────────────────
+
+async function showAmountLimits(i) {
+  const { rows } = await q(`SELECT * FROM amount_preset_config WHERE id=1`);
+  const cfg = rows[0] ?? { enabled: false, easy_max: 10000, hard_min: 20000 };
+  const easyRs = Math.round(Number(cfg.easy_max) / 100);
+  const hardRs = Math.round(Number(cfg.hard_min) / 100);
+  await i.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder()
+      .setColor(cfg.enabled ? Colors.Green : Colors.Grey)
+      .setTitle('💵 Amount-Based Presets')
+      .setDescription(cfg.enabled ? '✅ **Enabled**' : '❌ **Disabled**')
+      .addFields(
+        { name: `Easy  (< ₹${easyRs})`,                    value: 'Preset: **low**',    inline: true },
+        { name: `Medium  (₹${easyRs} – ₹${hardRs})`,       value: 'Preset: **medium**', inline: true },
+        { name: `Hard  (> ₹${hardRs})`,                     value: 'Preset: **high**',   inline: true },
+      )
+      .setFooter({ text: 'Applies to Dice, Slots, Blackjack, Mines. Overrides per-game preset when enabled.' })],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('admin:seteasylimit').setLabel('Easy Preset').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('admin:sethardlimit').setLabel('Hard Preset').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('admin:toggleamount')
+        .setLabel(cfg.enabled ? '🔴 Disable' : '🟢 Enable')
+        .setStyle(cfg.enabled ? ButtonStyle.Secondary : ButtonStyle.Primary),
+    )],
+  });
+}
+
+function openEasyLimitModal(i) {
+  const m = new ModalBuilder().setCustomId('admin:easymodal').setTitle('Easy Preset — Amount Limit');
+  m.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder().setCustomId('amount').setLabel('Amount less than (₹)?')
+      .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 100')
+  ));
+  return i.showModal(m);
+}
+
+function openHardLimitModal(i) {
+  const m = new ModalBuilder().setCustomId('admin:hardmodal').setTitle('Hard Preset — Amount Limit');
+  m.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder().setCustomId('amount').setLabel('Amount greater than (₹)?')
+      .setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 200')
+  ));
+  return i.showModal(m);
+}
+
+async function saveEasyLimit(i) {
+  const rs = Number(i.fields.getTextInputValue('amount'));
+  if (!Number.isFinite(rs) || rs <= 0) return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  const paise = Math.round(rs * 100);
+  await q(`UPDATE amount_preset_config SET easy_max=$1, updated_by=$2, updated_at=now() WHERE id=1`, [paise, i.user.id]);
+  invalidateAmountPreset();
+  await i.reply({ ephemeral: true, content: `✅ Easy preset: bets **< ₹${rs}** → **low** preset` });
+}
+
+async function saveHardLimit(i) {
+  const rs = Number(i.fields.getTextInputValue('amount'));
+  if (!Number.isFinite(rs) || rs <= 0) return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
+  const paise = Math.round(rs * 100);
+  await q(`UPDATE amount_preset_config SET hard_min=$1, updated_by=$2, updated_at=now() WHERE id=1`, [paise, i.user.id]);
+  invalidateAmountPreset();
+  await i.reply({ ephemeral: true, content: `✅ Hard preset: bets **> ₹${rs}** → **high** preset` });
+}
+
+async function toggleAmountPresets(i) {
+  const { rows } = await q(`UPDATE amount_preset_config SET enabled = NOT enabled, updated_by=$1, updated_at=now() WHERE id=1 RETURNING enabled`, [i.user.id]);
+  const enabled = rows[0]?.enabled ?? false;
+  invalidateAmountPreset();
+  await i.reply({ ephemeral: true, content: `💵 Amount-based presets are now **${enabled ? 'ON ✅' : 'OFF ❌'}**` });
 }

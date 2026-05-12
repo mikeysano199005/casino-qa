@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { q } from '../db/index.js';
 import { applyTx, requireActive, getPreset } from '../repo.js';
+import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
@@ -85,7 +86,7 @@ async function spin(i) {
   } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
 
   const seed = newServerSeed();
-  const preset = await getPreset('slots');
+  const preset = (await resolveAmountPreset(stake)) ?? await getPreset('slots');
 
   let reels;
   if (preset === 'low' && Math.random() < 0.4) {
