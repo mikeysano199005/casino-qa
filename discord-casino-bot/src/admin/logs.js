@@ -47,7 +47,14 @@ export const logRound = (client, game, id, info) =>
 
 export const logDeposit = (client, d) =>
   safeSend(client, env.CH_DEPOSIT_LOGS, { embeds: [new EmbedBuilder().setColor(Colors.Green)
-    .setTitle('💰 Deposit credited').setDescription(`Order \`${d.order_id}\` • ${fmt(BigInt(d.amount))} • user ${d.user_id}`)]});
+    .setTitle('💰 Deposit credited')
+    .addFields(
+      { name: 'Amount',     value: fmt(BigInt(d.amount)),                              inline: true },
+      { name: 'Username',   value: d.username   || '—',                               inline: true },
+      { name: 'Discord',    value: d.discord_id ? `<@${d.discord_id}>` : '—',         inline: true },
+      { name: 'Discord ID', value: d.discord_id || '—',                               inline: true },
+      { name: 'Order',      value: `\`${d.order_id}\``,                               inline: false },
+    )]});
 
 export const logPaymentError = (client, e) =>
   safeSend(client, env.CH_PAYMENT_ERRORS, { embeds: [new EmbedBuilder().setColor(Colors.Red)

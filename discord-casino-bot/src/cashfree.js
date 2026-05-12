@@ -107,7 +107,8 @@ export function startWebhookServer(client) {
         userId: dep.user_id, type: 'deposit', amount: expectedPaise,
         ref: dep.id, meta: { provider: 'cashfree', orderId },
       });
-      logDeposit(client, { order_id: orderId, amount: expectedPaise.toString(), user_id: dep.user_id });
+      const { rows: uRows } = await q(`SELECT username, discord_id FROM users WHERE id=$1`, [dep.user_id]);
+      logDeposit(client, { order_id: orderId, amount: expectedPaise.toString(), user_id: dep.user_id, username: uRows[0]?.username, discord_id: uRows[0]?.discord_id });
 
       // Credit referral bonus on the referee's first ever deposit
       const { rows: prevDeps } = await q(
