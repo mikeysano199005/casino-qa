@@ -19,8 +19,10 @@ export function pickOutcome(options, pool, preset, rng) {
   const stakes = Object.fromEntries(
     options.map(o => [o.key, BigInt(pool[o.key] || 0n)])
   );
+  const totalPool = options.reduce((a, o) => a + stakes[o.key], 0n);
 
-  if (preset === 'house') {
+  // No bets placed — stake-based logic is meaningless, use natural RNG
+  if (preset === 'house' || totalPool === 0n) {
     let r = rng;
     for (const o of options) {
       r -= o.naturalProbability;
@@ -29,6 +31,7 @@ export function pickOutcome(options, pool, preset, rng) {
     return options[options.length - 1].key;
   }
 
+  // Stake-based logic — only reached when totalPool > 0
   // House liability if outcome k wins = stakes[k] * payout
   const liability = options.map(o => ({
     key: o.key,
