@@ -16,21 +16,23 @@ export async function handleUserPanelInteraction(i) {
 
   if (i.isButton()) {
     const [, action, ...rest] = i.customId.split(':');
-    if (action === 'lookup')     return openLookupModal(i);
-    if (action === 'direct')     return showUserPanel(i, rest[0], false); // one-tap from bet logs
-    if (action === 'refresh')    return showUserPanel(i, rest[0], true);
-    if (action === 'credit')     return openCreditModal(i, rest[0]);
-    if (action === 'debit')      return openDebitModal(i, rest[0]);
-    if (action === 'ban')        return toggleBan(i, rest[0]);
-    if (action === 'setvip')     return openVipModal(i, rest[0]);
-    if (action === 'bethistory') return showBetHistory(i, rest[0], Number(rest[1] ?? 0));
+    if (action === 'lookup')            return openLookupModal(i);
+    if (action === 'direct')            return showUserPanel(i, rest[0], false); // one-tap from bet logs
+    if (action === 'refresh')           return showUserPanel(i, rest[0], true);
+    if (action === 'credit')            return openCreditModal(i, rest[0]);
+    if (action === 'debit')             return openDebitModal(i, rest[0]);
+    if (action === 'ban')               return toggleBan(i, rest[0]);
+    if (action === 'setvip')            return openVipModal(i, rest[0]);
+    if (action === 'bethistory')        return showBetHistory(i, rest[0], Number(rest[1] ?? 0));
+    if (action === 'bethistorylookup')  return openBetHistoryLookupModal(i);
   }
   if (i.isModalSubmit()) {
     const [, action, ...rest] = i.customId.split(':');
-    if (action === 'lookupmodal') return handleLookup(i);
-    if (action === 'creditmodal') return processCredit(i, rest[0]);
-    if (action === 'debitmodal')  return processDebit(i, rest[0]);
-    if (action === 'vipmodal')    return processVip(i, rest[0]);
+    if (action === 'lookupmodal')       return handleLookup(i);
+    if (action === 'creditmodal')       return processCredit(i, rest[0]);
+    if (action === 'debitmodal')        return processDebit(i, rest[0]);
+    if (action === 'vipmodal')          return processVip(i, rest[0]);
+    if (action === 'bethistorymodal')   return handleBetHistoryLookup(i);
   }
 }
 
@@ -194,12 +196,28 @@ async function toggleBan(i, userId) {
 
 // ─── Bet History ─────────────────────────────────────────────────────
 
+function openBetHistoryLookupModal(i) {
+  const m = new ModalBuilder().setCustomId('userpanel:bethistorymodal').setTitle('Bet History Lookup');
+  m.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder().setCustomId('discordId').setLabel('Discord User ID (18-19 digit snowflake)')
+      .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20)
+  ));
+  return i.showModal(m);
+}
+
+async function handleBetHistoryLookup(i) {
+  const discordId = i.fields.getTextInputValue('discordId').trim();
+  const { rows } = await q(`SELECT id FROM users WHERE discord_id = $1`, [discordId]);
+  if (!rows[0]) return i.reply({ ephemeral: true, content: `No user found with ID \`${discordId}\`.` });
+  await showBetHistory(i, rows[0].id, 0, false);
+}
+
 async function showBetHistory(i, userId, page) {
   const PAGE = 10;
   const offset = page * PAGE;
 
   const { rows: bets } = await q(
-    `SELECT game, stake, payout, result, selection, settled_at
+    `SELECT game, stake, payout, result, settled_at
      FROM bets
      WHERE user_id = $1 AND result != 'pending'
      ORDER BY settled_at DESC
@@ -208,12 +226,12 @@ async function showBetHistory(i, userId, page) {
   );
 
   const hasNext = bets.length > PAGE;
-  const page_bets = bets.slice(0, PAGE);
+  const pageBets = bets.slice(0, PAGE);
 
   const { rows: uRow } = await q(`SELECT username FROM users WHERE id = $1`, [userId]);
   const username = uRow[0]?.username ?? userId;
 
-  const lines = page_bets.map((b, idx) => {
+  const lines = pageBets.map(b => {
     const stake  = fmt(BigInt(b.stake));
     const payout = fmt(BigInt(b.payout || 0));
     const icon   = b.result === 'win' ? '✅' : b.result === 'push' ? '↔️' : '❌';
@@ -226,7 +244,7 @@ async function showBetHistory(i, userId, page) {
     .setColor(Colors.Gold)
     .setTitle(`📜 Bet History — ${username}`)
     .setDescription(lines.join('\n') || 'No bets found.')
-    .setFooter({ text: `Page ${page + 1} • Showing ${offset + 1}–${offset + page_bets.length}` });
+    .setFooter({ text: `Page ${page + 1} • Showing ${offset + 1}–${offset + pageBets.length}` });
 
   const nav = new ActionRowBuilder().addComponents(
     new ButtonBuilder()

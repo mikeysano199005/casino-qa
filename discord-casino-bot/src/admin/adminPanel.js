@@ -121,6 +121,7 @@ export async function postAdminPanel(channel) {
         new ButtonBuilder().setCustomId('ipladmin:list').setLabel('🏏 IPL Betting').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('admin:toggleprediction').setLabel('🔮 Matka Predictions').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('admin:amountlimits').setLabel('💵 Amount Limits').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('userpanel:bethistorylookup').setLabel('📜 Bet History').setStyle(ButtonStyle.Secondary),
       ),
     ],
   });
