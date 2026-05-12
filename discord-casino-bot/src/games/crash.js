@@ -14,6 +14,7 @@ const BETTING_MS = 15_000; // 15-second betting window before launch
 
 let state = null;
 const resultMsgIds = [];
+const lastResults  = [];
 
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] }).catch(() => null);
@@ -69,8 +70,11 @@ function multiplierAt(elapsedMs) {
 }
 
 async function renderPanel(channel, forceNew = false) {
-  const { phase, multiplier, crashAt, bets, bettingEndsAt, round } = state;
-  const seedField = { name: 'Server seed (commit)', value: '`' + round.server_seed_hash.slice(0, 24) + '…`', inline: true };
+  const { phase, multiplier, crashAt, bets, bettingEndsAt } = state;
+  const historyField = {
+    name: '📊 Last 15',
+    value: lastResults.length ? lastResults.map(v => `${v.toFixed(2)}×`).join('  ') : '—',
+  };
 
   let embed, bettingOpen, cashoutOpen;
   if (phase === 'betting') {
@@ -80,7 +84,7 @@ async function renderPanel(channel, forceNew = false) {
       .setDescription(`Place your bets! Round launches at **<t:${Math.floor(bettingEndsAt / 1000)}:T>**`)
       .addFields(
         { name: 'Bets placed', value: String(bets.length), inline: true },
-        seedField,
+        historyField,
       );
     bettingOpen = true; cashoutOpen = false;
   } else if (phase === 'flying') {
@@ -90,7 +94,7 @@ async function renderPanel(channel, forceNew = false) {
       .setDescription(`🔴 **LIVE** — Cash out before it crashes!\n_Updates every 2s • may lag on mobile_`)
       .addFields(
         { name: 'Active bets', value: String(bets.length), inline: true },
-        seedField,
+        historyField,
       );
     bettingOpen = false; cashoutOpen = true;
   } else {
@@ -100,7 +104,7 @@ async function renderPanel(channel, forceNew = false) {
       .setDescription(`Next round starting in 4s…`)
       .addFields(
         { name: 'Active bets', value: String(bets.length), inline: true },
-        seedField,
+        historyField,
       );
     bettingOpen = false; cashoutOpen = false;
   }
@@ -191,9 +195,10 @@ async function settle(channel) {
     [state.serverSeed, pool.toString(), (pool - paid).toString(), state.round.id]
   );
   logRound(channel.client, 'crash', state.round.id, { crashAt: state.crashAt, pool: pool.toString(), pnl: (pool - paid).toString() });
+  lastResults.unshift(state.crashAt);
+  if (lastResults.length > 15) lastResults.pop();
   await pushResult(channel, new EmbedBuilder().setColor(Colors.Red)
-    .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`)
-    .setDescription(`Seed reveal: \`${state.serverSeed}\`\nHash: \`${state.round.server_seed_hash}\``));
+    .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`));
 }
 
 export async function handleInteraction(interaction) {
