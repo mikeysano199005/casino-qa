@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset, loadSession, saveSession, deleteSession } from '../repo.js';
 import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
@@ -149,7 +149,7 @@ async function executeStartGame(i, amount, mines) {
 
     const stake = toPaise(amount);
     const seed = newServerSeed();
-    const preset = (await resolveAmountPreset(stake)) ?? await getPreset('mines');
+    const preset = (await getUserPreset(u.id, 'mines')) ?? (await resolveAmountPreset(stake)) ?? await getPreset('mines');
     const bombs = new Set();
     let n = 0;
     while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * 20));

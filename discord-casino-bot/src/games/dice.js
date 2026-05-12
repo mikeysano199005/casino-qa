@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset } from '../repo.js';
 import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
@@ -94,7 +94,7 @@ async function executeBet(i, amount, side, target) {
   } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
 
   const seed = newServerSeed();
-  const preset = (await resolveAmountPreset(stake)) ?? await getPreset('dice');
+  const preset = (await getUserPreset(u.id, 'dice')) ?? (await resolveAmountPreset(stake)) ?? await getPreset('dice');
   const r = rngFloat(seed, i.user.id, 0);
   let roll = Math.floor(r * 99) + 1; // 1-99
 

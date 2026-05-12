@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset, loadSession, saveSession, deleteSession } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset, loadSession, saveSession, deleteSession } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
@@ -167,7 +167,7 @@ async function executeStartHand(i, amount) {
   lastBet.set(i.user.id, amount);
 
   const seed = newServerSeed();
-  const preset = await getPreset('blackjack');
+  const preset = (await getUserPreset(u.id, 'blackjack')) ?? await getPreset('blackjack');
   const deck = newDeck(seed);
 
   if (preset === 'low') {

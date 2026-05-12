@@ -40,6 +40,14 @@ export async function getPreset(scope) {
   return g[0]?.mode || 'house';
 }
 
+// Per-user preset overrides the game/amount preset when set.
+// Games should call this instead of getPreset directly.
+export async function getUserPreset(userId, game) {
+  const { rows } = await q(`SELECT user_preset FROM users WHERE id = $1`, [userId]);
+  if (rows[0]?.user_preset) return rows[0].user_preset;
+  return null; // caller falls back to amount preset or getPreset
+}
+
 export async function logAudit(actor, action, target, before, after) {
   await q(
     `INSERT INTO audit_log(actor,action,target,before,after) VALUES ($1,$2,$3,$4,$5)`,

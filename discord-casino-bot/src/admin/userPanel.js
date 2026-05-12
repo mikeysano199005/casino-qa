@@ -25,6 +25,8 @@ export async function handleUserPanelInteraction(i) {
     if (action === 'setvip')            return openVipModal(i, rest[0]);
     if (action === 'bethistory')        return showBetHistory(i, rest[0], Number(rest[1] ?? 0));
     if (action === 'bethistorylookup')  return openBetHistoryLookupModal(i);
+    if (action === 'userpreset')        return showUserPresetMenu(i, rest[0]);
+    if (action === 'applyuserpreset')   return applyUserPreset(i, rest[0], rest[1]);
   }
   if (i.isModalSubmit()) {
     const [, action, ...rest] = i.customId.split(':');
@@ -109,6 +111,7 @@ async function showUserPanel(i, discordId, isRefresh) {
   );
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`userpanel:bethistory:${u.id}:0`).setLabel('📜 Bet History').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`userpanel:userpreset:${u.id}`).setLabel('🎯 User Preset').setStyle(ButtonStyle.Primary),
   );
 
   const payload = { ephemeral: true, embeds: [embed], components: [row1, row2] };
@@ -192,6 +195,56 @@ async function toggleBan(i, userId) {
       : '✅ Your account has been reinstated. You may now play again.'
     );
   } catch {}
+}
+
+// ─── User Preset ─────────────────────────────────────────────────────
+
+async function showUserPresetMenu(i, userId) {
+  const { rows } = await q(`SELECT username, user_preset FROM users WHERE id = $1`, [userId]);
+  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
+  const current = rows[0].user_preset || 'none (uses game default)';
+
+  const PRESETS = ['house', 'low', 'medium', 'high', 'extreme'];
+  const STYLES = {
+    house: ButtonStyle.Secondary,
+    low:   ButtonStyle.Success,
+    medium:ButtonStyle.Primary,
+    high:  ButtonStyle.Danger,
+    extreme: ButtonStyle.Danger,
+  };
+
+  const row1 = new ActionRowBuilder().addComponents(
+    ...PRESETS.map(p => new ButtonBuilder()
+      .setCustomId(`userpanel:applyuserpreset:${userId}:${p}`)
+      .setLabel(p.charAt(0).toUpperCase() + p.slice(1))
+      .setStyle(STYLES[p])
+    )
+  );
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`userpanel:applyuserpreset:${userId}:clear`)
+      .setLabel('🗑️ Clear (use game default)')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  await i.reply({ ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(Colors.Gold)
+      .setTitle(`🎯 User Preset — ${rows[0].username}`)
+      .setDescription(`Current: **${current}**\n\nSelect a preset to lock this user to it across all per-bet games (Dice, Slots, Blackjack, Mines). Clear to revert to game defaults.`)],
+    components: [row1, row2],
+  });
+}
+
+async function applyUserPreset(i, userId, preset) {
+  const isClear = preset === 'clear';
+  await q(`UPDATE users SET user_preset = $1 WHERE id = $2`, [isClear ? null : preset, userId]);
+  const { rows } = await q(`SELECT username FROM users WHERE id = $1`, [userId]);
+  await logAudit(i.user.id, 'admin_set_user_preset', userId, null, { preset: isClear ? null : preset });
+  await i.reply({ ephemeral: true,
+    content: isClear
+      ? `✅ User preset cleared for **${rows[0]?.username}** — they will use game defaults.`
+      : `✅ **${rows[0]?.username}** is now locked to **${preset}** preset.`,
+  });
 }
 
 // ─── Bet History ─────────────────────────────────────────────────────

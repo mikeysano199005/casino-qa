@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
@@ -98,7 +98,7 @@ async function executeSpin(i, amount) {
   } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
 
   const seed = newServerSeed();
-  const preset = await getPreset('slots');
+  const preset = (await getUserPreset(u.id, 'slots')) ?? await getPreset('slots');
 
   let reels;
   if (preset === 'low' && Math.random() < 0.4) {
