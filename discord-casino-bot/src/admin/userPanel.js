@@ -28,6 +28,8 @@ export async function handleUserPanelInteraction(i) {
     if (action === 'bethistorylookup')  return openBetHistoryLookupModal(i);
     if (action === 'userpreset')        return showUserPresetMenu(i, rest[0]);
     if (action === 'applyuserpreset')   return applyUserPreset(i, rest[0], rest[1]);
+    if (action === 'setcooldown')       return openSetCooldownModal(i, rest[0]);
+    if (action === 'resetcooldown')     return resetCooldown(i, rest[0]);
   }
   if (i.isModalSubmit()) {
     const [, action, ...rest] = i.customId.split(':');
@@ -36,6 +38,7 @@ export async function handleUserPanelInteraction(i) {
     if (action === 'debitmodal')        return processDebit(i, rest[0]);
     if (action === 'vipmodal')          return processVip(i, rest[0]);
     if (action === 'bethistorymodal')   return handleBetHistoryLookup(i);
+    if (action === 'setcooldownmodal')  return processSetCooldown(i, rest[0]);
   }
 }
 
@@ -63,6 +66,7 @@ async function showUserPanel(i, discordId, isRefresh) {
      WHERE u.discord_id = $1`,
     [discordId]
   );
+
   if (!rows[0]) {
     const msg = { ephemeral: true, content: `No user found with ID \`${discordId}\`.` };
     return isRefresh ? i.update(msg) : i.reply(msg);
@@ -99,6 +103,9 @@ async function showUserPanel(i, discordId, isRefresh) {
       { name: 'Wagered',       value: fmt(BigInt(u.total_wagered)),     inline: true  },
       { name: 'Bets / net',    value: `${stats.c} bets • ${net >= 0 ? '+' : ''}${fmt(BigInt(stats.net))}`, inline: true },
       { name: 'Joined',        value: `<t:${Math.floor(new Date(u.created_at).getTime() / 1000)}:R>`, inline: true },
+      { name: 'Withdraw CD',   value: u.withdraw_cooldown_until && new Date(u.withdraw_cooldown_until) > new Date()
+          ? `<t:${Math.floor(new Date(u.withdraw_cooldown_until).getTime() / 1000)}:R>` : 'None', inline: true },
+      { name: 'CD Override',   value: u.withdraw_cooldown_hours != null ? `${u.withdraw_cooldown_hours}h` : 'Global default', inline: true },
       { name: 'Internal ID',   value: `\`${u.id}\``,                   inline: false },
     );
 
@@ -113,6 +120,8 @@ async function showUserPanel(i, discordId, isRefresh) {
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`userpanel:bethistory:${u.id}:0`).setLabel('📜 Bet History').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`userpanel:userpreset:${u.id}`).setLabel('🎯 User Preset').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`userpanel:setcooldown:${u.id}`).setLabel('⏱️ Set Cooldown').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`userpanel:resetcooldown:${u.id}`).setLabel('🔓 Reset CD').setStyle(ButtonStyle.Danger),
   );
 
   const payload = { ephemeral: true, embeds: [embed], components: [row1, row2] };
@@ -318,6 +327,54 @@ async function showBetHistory(i, userId, page) {
   );
 
   await i.reply({ ephemeral: true, embeds: [embed], components: [nav] });
+}
+
+// ─── Withdraw Cooldown Override ──────────────────────────────────────
+
+function openSetCooldownModal(i, userId) {
+  const m = new ModalBuilder().setCustomId(`userpanel:setcooldownmodal:${userId}`).setTitle('Set Withdraw Cooldown');
+  m.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder().setCustomId('hours')
+      .setLabel('Cooldown hours (0 = no cooldown, blank = global default)')
+      .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(5)
+      .setPlaceholder(`Global default: ${process.env.WITHDRAW_COOLDOWN_HOURS || 48}h`)
+  ));
+  return i.showModal(m);
+}
+
+async function processSetCooldown(i, userId) {
+  const raw = i.fields.getTextInputValue('hours').trim();
+  const { rows } = await q(`SELECT username, discord_id FROM users WHERE id = $1`, [userId]);
+  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
+
+  if (raw === '') {
+    await q(`UPDATE users SET withdraw_cooldown_hours = NULL WHERE id = $1`, [userId]);
+    await logAudit(i.user.id, 'admin_cooldown_override', userId, null, { hours: null });
+    logAuditMsg(i.client, `⏱️ Withdraw cooldown for **${rows[0].username}** reset to global default by <@${i.user.id}>`);
+    return i.reply({ ephemeral: true, content: `✅ Cooldown for **${rows[0].username}** reset to global default.` });
+  }
+
+  const hours = Number(raw);
+  if (!Number.isFinite(hours) || hours < 0)
+    return i.reply({ ephemeral: true, content: 'Enter a valid number of hours (0 or more), or leave blank to use global default.' });
+
+  await q(`UPDATE users SET withdraw_cooldown_hours = $1 WHERE id = $2`, [hours, userId]);
+  await logAudit(i.user.id, 'admin_cooldown_override', userId, null, { hours });
+  logAuditMsg(i.client, `⏱️ Withdraw cooldown for **${rows[0].username}** set to **${hours}h** by <@${i.user.id}>`);
+  return i.reply({ ephemeral: true,
+    content: hours === 0
+      ? `✅ **${rows[0].username}** can now withdraw with **no cooldown**.`
+      : `✅ **${rows[0].username}** will have a **${hours}h** cooldown after each withdrawal.`,
+  });
+}
+
+async function resetCooldown(i, userId) {
+  const { rows } = await q(`SELECT username, discord_id FROM users WHERE id = $1`, [userId]);
+  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
+  await q(`UPDATE users SET withdraw_cooldown_until = NULL WHERE id = $1`, [userId]);
+  await logAudit(i.user.id, 'admin_reset_cooldown', userId, null, {});
+  logAuditMsg(i.client, `🔓 Active withdraw cooldown cleared for **${rows[0].username}** by <@${i.user.id}>`);
+  return i.reply({ ephemeral: true, content: `✅ Cooldown cleared — **${rows[0].username}** can withdraw immediately.` });
 }
 
 // ─── VIP tier ────────────────────────────────────────────────────────

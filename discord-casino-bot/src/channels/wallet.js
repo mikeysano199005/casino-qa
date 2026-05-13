@@ -168,7 +168,7 @@ async function submitWithdraw(i, method) {
   const u = await upsertUser(i.user.id, i.user.username);
 
   // Cooldown check
-  const { rows: ur } = await q(`SELECT withdraw_cooldown_until FROM users WHERE id=$1`, [u.id]);
+  const { rows: ur } = await q(`SELECT withdraw_cooldown_until, withdraw_cooldown_hours FROM users WHERE id=$1`, [u.id]);
   if (ur[0]?.withdraw_cooldown_until && new Date(ur[0].withdraw_cooldown_until) > new Date())
     return i.editReply({ content: `Cooldown until <t:${Math.floor(new Date(ur[0].withdraw_cooldown_until).getTime()/1000)}:R>.` });
 
@@ -211,10 +211,12 @@ async function submitWithdraw(i, method) {
     [u.id, stake.toString(), upiId, bankObj]
   );
 
-  // Set cooldown
-  const cd = Number(process.env.WITHDRAW_COOLDOWN_HOURS || 48);
-  await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 || ' hours')::interval WHERE id=$2`,
-    [String(cd), u.id]);
+  // Set cooldown — use per-user override if set, else global default
+  const cd = ur[0]?.withdraw_cooldown_hours ?? Number(process.env.WITHDRAW_COOLDOWN_HOURS || 48);
+  if (cd > 0) {
+    await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 || ' hours')::interval WHERE id=$2`,
+      [String(cd), u.id]);
+  }
 
   await postWithdrawRequest(i.client, { ...rows[0], discord_id: i.user.id, username: i.user.username });
   await logAudit(i.user.id, 'withdraw_requested', rows[0].id, null, { amount: stake.toString() });
