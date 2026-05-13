@@ -212,7 +212,7 @@ async function submitWithdraw(i, method) {
   );
 
   // Set cooldown
-  const cd = Number(process.env.WITHDRAW_COOLDOWN_HOURS || 24);
+  const cd = Number(process.env.WITHDRAW_COOLDOWN_HOURS || 48);
   await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 || ' hours')::interval WHERE id=$2`,
     [String(cd), u.id]);
 
