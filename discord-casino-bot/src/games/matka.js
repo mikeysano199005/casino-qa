@@ -13,7 +13,7 @@ import { deliverMatkaPredictions } from '../util/predictionDelivery.js';
 const ROUND_MS = 60_000;  // 60-second betting window
 const PAYOUT   = 9;       // 9× on correct number (natural 10×, −10% house edge)
 const MIN_BET  = 100;     // ₹100 minimum — Matka only
-const MAX_BET  = 50_000;  // ₹50,000 maximum — Matka only
+const MAX_BET  = 500_000; // ₹5,00,000 maximum — Matka only
 
 let state              = null;
 let _client            = null;
