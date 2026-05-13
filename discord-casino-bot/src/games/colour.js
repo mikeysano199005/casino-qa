@@ -9,6 +9,7 @@ import { pickOutcome } from './outcome.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
 import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
+import { deliverColourPredictions } from '../util/predictionDelivery.js';
 
 const ROUND_MS = 25_000;
 const OPTIONS = [
@@ -67,6 +68,11 @@ async function openRound() {
      RETURNING *`,
     [hash(serverSeed), clientSeed, preset]
   );
+  // Pre-compute natural-RNG winner for VIP paid predictions
+  const rng0 = rngFloat(serverSeed, clientSeed, 0);
+  let r0 = rng0, predictedWinner = OPTIONS[OPTIONS.length - 1].key;
+  for (const o of OPTIONS) { r0 -= o.naturalProbability; if (r0 <= 0) { predictedWinner = o.key; break; } }
+
   state = {
     round: rows[0],
     serverSeed,
@@ -74,6 +80,7 @@ async function openRound() {
     bets: [],   // {userId, key, stake}
     endsAt: Date.now() + ROUND_MS,
     panelMessageId: null,
+    predictedWinner,
   };
 }
 
@@ -167,7 +174,12 @@ async function tick(channel) {
     .setDescription(`Pool: **${fmt(pool)}** • Paid: **${fmt(paid)}**\nReveal seed: \`${settled.serverSeed.slice(0, 24)}…\``));
 
   // 3. Open next round after result is posted
+  const settledRoundId = settled.round.id;
   await openRound();
+  // Deliver paid VIP predictions to users who bet in the settled round
+  deliverColourPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>
+    console.warn('[colour vip delivery]', e.message)
+  );
   await renderPanel(channel);
 }
 

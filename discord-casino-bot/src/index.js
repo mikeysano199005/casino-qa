@@ -24,6 +24,7 @@ import { botHeartbeat } from './admin/logs.js';
 import { startLiveDashboard } from './admin/liveDashboard.js';
 import { startWebhookServer } from './cashfree.js';
 import { checkAndSendWelcome, checkAndSendWelcomeBack } from './util/welcome.js';
+import { startSlotsPredictionPoller } from './util/predictionDelivery.js';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
@@ -128,6 +129,8 @@ client.once(Events.ClientReady, async () => {
 
   if (process.env.CH_LIVE_DASHBOARD)
     startLiveDashboard(client, process.env.CH_LIVE_DASHBOARD).catch(console.error);
+
+  startSlotsPredictionPoller(client);
 
   // heartbeat
   setInterval(() => {

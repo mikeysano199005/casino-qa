@@ -8,6 +8,7 @@ import { newServerSeed, hash, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { allow } from '../util/rateLimit.js';
 import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
+import { deliverMatkaPredictions } from '../util/predictionDelivery.js';
 
 const ROUND_MS = 60_000;  // 60-second betting window
 const PAYOUT   = 9;       // 9× on correct number (natural 10×, −10% house edge)
@@ -74,27 +75,24 @@ async function openRound() {
   );
   const pool = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [i, 0n]));
 
-  // In prediction mode: winner is determined NOW from the seed and broadcast to the VIP channel.
-  // The same RNG value is re-used in tick(), so the prediction is always 100% accurate.
-  let predictedWinner = null;
-  if (preset === 'prediction') {
-    const rng = rngFloat(serverSeed, clientSeed, 0);
-    predictedWinner = Math.floor(rng * 10);
-    if (predictionEnabled && _client && process.env.CH_MATKA_PREDICTION) {
-      const endsAt = Date.now() + ROUND_MS;
-      const ch = await _client.channels.fetch(process.env.CH_MATKA_PREDICTION).catch(() => null);
-      if (ch) {
-        ch.send({
-          embeds: [new EmbedBuilder()
-            .setColor(Colors.Purple)
-            .setTitle('🔮 Matka — VIP Prediction')
-            .setDescription(
-              `**Winning number: ${predictedWinner}**\n` +
-              `Round closes at **<t:${Math.floor(endsAt / 1000)}:T>**\n` +
-              `_Bet on **${predictedWinner}** before the round ends to win 9× your stake!_`
-            )],
-        }).catch(() => {});
-      }
+  // Always pre-compute winner from house RNG (used for VIP paid predictions + prediction preset channel)
+  const rng0 = rngFloat(serverSeed, clientSeed, 0);
+  const predictedWinner = Math.floor(rng0 * 10);
+
+  if (preset === 'prediction' && predictionEnabled && _client && process.env.CH_MATKA_PREDICTION) {
+    const endsAt = Date.now() + ROUND_MS;
+    const ch = await _client.channels.fetch(process.env.CH_MATKA_PREDICTION).catch(() => null);
+    if (ch) {
+      ch.send({
+        embeds: [new EmbedBuilder()
+          .setColor(Colors.Purple)
+          .setTitle('🔮 Matka — VIP Prediction')
+          .setDescription(
+            `**Winning number: ${predictedWinner}**\n` +
+            `Round closes at **<t:${Math.floor(endsAt / 1000)}:T>**\n` +
+            `_Bet on **${predictedWinner}** before the round ends to win 9× your stake!_`
+          )],
+      }).catch(() => {});
     }
   }
 
@@ -199,8 +197,7 @@ async function tick(channel) {
   const preset = settled.round.preset_mode || await getPreset('matka');
   const rng    = rngFloat(settled.serverSeed, settled.round.client_seed, 0);
   const rng2   = rngFloat(settled.serverSeed, settled.round.client_seed, 1);
-  // prediction mode: winner was locked in at round open — use it directly
-  const winner = (settled.predictedWinner !== null)
+  const winner = (preset === 'prediction' && settled.predictedWinner !== null)
     ? settled.predictedWinner
     : pickWinner(settled.pool, preset, rng, rng2);
 
@@ -243,7 +240,14 @@ async function tick(channel) {
     )
   );
 
+  const settledRoundId = settled.round.id;
   await openRound();
+  // Deliver paid VIP predictions to users who bet in the settled round
+  if (state?.predictedWinner !== null && state?.predictedWinner !== undefined) {
+    deliverMatkaPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>
+      console.warn('[matka vip delivery]', e.message)
+    );
+  }
   await renderPanel(channel);
 }
 
