@@ -92,16 +92,27 @@ function multiplierAt(ms) {
 }
 
 // ── Panel (always edit existing, only send-new when message is gone) ──
+// 'pending' sentinel is set synchronously before any await so concurrent
+// callers see it and bail — prevents two sends from running in parallel.
 async function renderPanel(channel) {
   if (!state) return;
   const { embeds, components } = buildPanel();
-  if (panelMsgId) {
+
+  if (panelMsgId && panelMsgId !== 'pending') {
     const msg = await channel.messages.fetch(panelMsgId).catch(() => null);
     if (msg) { await msg.edit({ embeds, components }).catch(() => {}); return; }
-    panelMsgId = null; // message was deleted externally — post fresh below
+    panelMsgId = null; // externally deleted — fall through to send
   }
-  const sent = await channel.send({ embeds, components });
-  panelMsgId = sent.id;
+
+  if (panelMsgId === 'pending') return; // another send already in flight
+
+  panelMsgId = 'pending'; // ← sync, no await between check and set
+  try {
+    const sent = await channel.send({ embeds, components });
+    panelMsgId = sent.id;
+  } catch {
+    panelMsgId = null; // reset so next render can retry
+  }
 }
 
 function totalPot() {
