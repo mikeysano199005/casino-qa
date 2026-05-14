@@ -142,7 +142,7 @@ async function executeStartGame(i, amount, mines) {
       try {
         await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
           ref: null, meta: { game: 'mines', result: 'abandoned' } });
-        await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
+        await q(`UPDATE bets SET result='abandoned', settled_at=now() WHERE id=$1`, [existing.betId]);
       } catch (e) { console.warn('[mines] abandon failed:', e.message); }
       await clearSession(existing.userId).catch(() => {});
     }

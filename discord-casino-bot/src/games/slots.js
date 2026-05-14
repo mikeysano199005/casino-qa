@@ -74,29 +74,31 @@ function openModal(i) {
 }
 
 async function spin(i) {
+  await i.deferReply({ ephemeral: true });
   const amount = Number(i.fields.getTextInputValue('amount'));
   await executeSpin(i, amount);
 }
 
 async function rebet(i) {
+  await i.deferReply({ ephemeral: true });
   const amount = lastBet.get(i.user.id);
-  if (!amount) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🎰 Spin first to set your stake.' });
+  if (!amount) return i.editReply({ content: '⚠️ No previous bet found. Use 🎰 Spin first to set your stake.' });
   await executeSpin(i, amount);
 }
 
 async function executeSpin(i, amount) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
+    return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
 
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
-  catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+  catch { return i.editReply({ content: '🚫 Your account is suspended.' }); }
   const stake = toPaise(amount);
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
       ref: null, meta: { game: 'slots' } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
+  } catch { return i.editReply({ content: '💸 Insufficient.' }); }
 
   const seed = newServerSeed();
   const preset = (await getUserPreset(u.id, 'slots')) ?? await getPreset('slots');
@@ -176,7 +178,7 @@ async function executeSpin(i, amount) {
 
   lastBet.set(i.user.id, amount);
 
-  await i.reply({ ephemeral: true,
+  await i.editReply({
     embeds: [new EmbedBuilder().setColor(win ? Colors.Green : Colors.Red)
       .setTitle(`🎰 ${reels.map(r=>r.s).join(' | ')}`)
       .setDescription(win ? `**WIN ${fmt(payout)}**` : 'No match — try again')],

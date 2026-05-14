@@ -255,8 +255,11 @@ async function tick(channel) {
   );
 
   const settledRoundId = settled.round.id;
-  await openRound();
-  settling = false;
+  try {
+    await openRound();
+  } finally {
+    settling = false;
+  }
   // Deliver paid VIP predictions to users who bet in the settled round
   if (state?.predictedWinner !== null && state?.predictedWinner !== undefined) {
     deliverMatkaPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>

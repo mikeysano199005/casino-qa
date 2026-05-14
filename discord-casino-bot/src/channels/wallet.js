@@ -216,8 +216,8 @@ async function submitWithdraw(i, method) {
   // Set cooldown — use per-user override if set, else global default
   const cd = ur[0]?.withdraw_cooldown_hours ?? Number(process.env.WITHDRAW_COOLDOWN_HOURS || 48);
   if (cd > 0) {
-    await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 || ' hours')::interval WHERE id=$2`,
-      [String(cd), u.id]);
+    await q(`UPDATE users SET withdraw_cooldown_until = now() + ($1 * interval '1 hour') WHERE id=$2`,
+      [cd, u.id]);
   }
 
   await postWithdrawRequest(i.client, { ...rows[0], discord_id: i.user.id, username: i.user.username });

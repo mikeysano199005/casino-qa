@@ -130,31 +130,33 @@ function openModal(i) {
 }
 
 async function startHand(i) {
+  await i.deferReply({ ephemeral: true });
   const amount = Number(i.fields.getTextInputValue('amount'));
   await executeStartHand(i, amount);
 }
 
 async function rebet(i) {
+  await i.deferReply({ ephemeral: true });
   const amount = lastBet.get(i.user.id);
-  if (!amount) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🃏 New Hand first to set your stake.' });
+  if (!amount) return i.editReply({ content: '⚠️ No previous bet found. Use 🃏 New Hand first to set your stake.' });
   await executeStartHand(i, amount);
 }
 
 async function executeStartHand(i, amount) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
+    return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
 
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
-  catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+  catch { return i.editReply({ content: '🚫 Your account is suspended.' }); }
 
   // Abandon any existing session (refund orphaned stake)
   const existing = await getSession(i.user.id);
   if (existing) {
     await applyTx({ userId: existing.userId, type: 'bet', amount: 0n, lockDelta: -existing.stake,
       ref: null, meta: { game: 'blackjack', result: 'abandoned' } });
-    await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1`, [existing.betId]);
+    await q(`UPDATE bets SET result='abandoned', settled_at=now() WHERE id=$1`, [existing.betId]);
     await clearSession(existing.userId);
   }
 
@@ -162,7 +164,7 @@ async function executeStartHand(i, amount) {
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
       ref: null, meta: { game: 'blackjack' } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
+  } catch { return i.editReply({ content: '💸 Insufficient.' }); }
 
   lastBet.set(i.user.id, amount);
 
@@ -204,10 +206,10 @@ async function executeStartHand(i, amount) {
     logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'blackjack', stake: s.stake.toString(), payout: payout.toString(), result: 'win' });
     if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
       broadcastBigWin(i.client, i.user.username, 'Blackjack', payout).catch(() => {});
-    return i.reply({ ephemeral: true, ...render(s, true, 'natural') });
+    return i.editReply(render(s, true, 'natural'));
   }
 
-  await i.reply({ ephemeral: true, ...render(s, false) });
+  await i.editReply(render(s, false));
 }
 
 function displayCard(c) {

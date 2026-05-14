@@ -61,6 +61,7 @@ function openModal(i) {
 }
 
 async function play(i) {
+  await i.deferReply({ ephemeral: true });
   const amount = Number(i.fields.getTextInputValue('amount'));
   const side   = i.fields.getTextInputValue('side').trim().toUpperCase();
   const target = Math.floor(Number(i.fields.getTextInputValue('target')));
@@ -68,21 +69,22 @@ async function play(i) {
 }
 
 async function rebet(i) {
+  await i.deferReply({ ephemeral: true });
   const last = lastBet.get(i.user.id);
-  if (!last) return i.reply({ ephemeral: true, content: '⚠️ No previous bet found. Use 🎲 Roll first to set your bet.' });
+  if (!last) return i.editReply({ content: '⚠️ No previous bet found. Use 🎲 Roll first to set your bet.' });
   await executeBet(i, last.amount, last.side, last.target);
 }
 
 async function executeBet(i, amount, side, target) {
   const min = Number(process.env.MIN_BET || 10), max = Number(process.env.MAX_BET || 10000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.reply({ ephemeral: true, content: `Stake ₹${min}–₹${max}.` });
+    return i.editReply({ content: `Stake ₹${min}–₹${max}.` });
   if (!['UNDER', 'OVER'].includes(side) || target < 2 || target > 98)
-    return i.reply({ ephemeral: true, content: 'side UNDER/OVER, target 2-98.' });
+    return i.editReply({ content: 'side UNDER/OVER, target 2-98.' });
 
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
-  catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+  catch { return i.editReply({ content: '🚫 Your account is suspended.' }); }
 
   // Auto-release any stuck mines/blackjack sessions so their locked funds are freed
   await clearStuckSessions(i.user.id).catch(() => {});
@@ -95,7 +97,7 @@ async function executeBet(i, amount, side, target) {
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
       ref: null, meta: { game: 'dice', side, target } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient balance.' }); }
+  } catch { return i.editReply({ content: '💸 Insufficient balance.' }); }
 
   const seed = newServerSeed();
   const preset = (await getUserPreset(u.id, 'dice')) ?? (await resolveAmountPreset(stake)) ?? await getPreset('dice');
@@ -129,7 +131,7 @@ async function executeBet(i, amount, side, target) {
     .setColor(win ? Colors.Green : Colors.Red)
     .setTitle(`🎲 Roll: ${roll}`)
     .setDescription(`${side} ${target} • Multiplier ${payoutMult.toFixed(2)}×\n${win ? `**WIN ${fmt(payout)}**` : `**Loss**`}`);
-  await i.reply({ ephemeral: true, embeds: [e],
+  await i.editReply({ embeds: [e],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('dice:rebet').setLabel('🔁 Bet Again').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('dice:play').setLabel('🎲 Change Bet').setStyle(ButtonStyle.Secondary),

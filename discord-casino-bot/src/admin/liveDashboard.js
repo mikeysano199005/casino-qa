@@ -15,7 +15,7 @@ async function fetchStats() {
     (SELECT COUNT(*) FROM bets WHERE created_at > now() - interval '1 hour')                           AS bets_1h,
     (SELECT COALESCE(SUM(stake::bigint),0) FROM bets WHERE created_at > now() - interval '1 hour')     AS vol_1h,
     (SELECT COALESCE(SUM(stake::bigint - payout::bigint),0) FROM bets
-      WHERE settled_at > now() - interval '24 hours' AND result NOT IN ('pending','push'))              AS ggr_24h,
+      WHERE settled_at > now() - interval '24 hours' AND result NOT IN ('pending','push','abandoned'))  AS ggr_24h,
     (SELECT COUNT(*) FROM deposits WHERE status='paid' AND created_at > now() - interval '24 hours')   AS dep_count,
     (SELECT COALESCE(SUM(amount::bigint),0) FROM deposits WHERE status='paid'
       AND created_at > now() - interval '24 hours')                                                    AS dep_vol,

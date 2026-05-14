@@ -33,6 +33,12 @@ async function pushResult(channel, embed) {
   resultMsgIds.push(msg.id);
 }
 
+// Schedule settlement exactly at endsAt — eliminates drift from fixed setInterval
+function scheduleNextTick(channel) {
+  const delay = Math.max(500, state.endsAt - Date.now());
+  setTimeout(() => tick(channel).catch(e => console.error('[colour]', e)), delay);
+}
+
 export async function startColourLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[colour] no channel');
@@ -46,7 +52,6 @@ export async function startColourLoop(client, channelId) {
       });
   }
   await postPanel(channel);
-  setInterval(() => tick(channel).catch(e => console.error('[colour]', e)), ROUND_MS);
   // Edit-only refresh every 8s for mobile — never posts a new message
   setInterval(async () => {
     if (!state?.panelMessageId) return;
@@ -62,6 +67,7 @@ async function postPanel(channel) {
   // start first round
   await openRound();
   await renderPanel(channel);
+  scheduleNextTick(channel);
 }
 
 async function openRound() {
@@ -187,6 +193,7 @@ async function tick(channel) {
     console.warn('[colour vip delivery]', e.message)
   );
   await renderPanel(channel);
+  scheduleNextTick(channel);
 }
 
 // Interaction routing ──────────────────────────────────────────────
