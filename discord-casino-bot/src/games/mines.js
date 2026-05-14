@@ -182,12 +182,43 @@ function payoutMultiplier(safeRevealed, mines) {
 }
 
 // Grid is 4×5 = 20 tiles (indices 0-19) + action row = exactly 5 Discord action rows
-function renderBoard(s, revealAll = false) {
+function renderBoard(s, revealAll = false, outcome = 'playing') {
+  const gemsFound = [...s.revealed].filter(idx => !s.bombs.has(idx)).length;
+  const safeTotal = 20 - s.mines;
+  const payout    = BigInt(Math.floor(Number(s.stake) * s.multiplier));
+  const nextMult  = gemsFound < safeTotal ? payoutMultiplier(gemsFound + 1, s.mines) : null;
+  const nextPay   = nextMult ? BigInt(Math.floor(Number(s.stake) * nextMult)) : null;
+
+  let color, title, desc;
+  if (outcome === 'loss') {
+    color = Colors.Red;
+    title = '💥 Mine Hit!';
+    desc  = `You hit a mine and lost **${fmt(s.stake)}**.\n💎 Found **${gemsFound}** gem${gemsFound !== 1 ? 's' : ''} before detonation.`;
+  } else if (outcome === 'win') {
+    color = Colors.Green;
+    title = `🏆 Cashed Out — ${s.multiplier.toFixed(2)}×`;
+    desc  = `Won **${fmt(payout)}** • 💎 **${gemsFound}** gem${gemsFound !== 1 ? 's' : ''} collected safely.`;
+  } else {
+    color = gemsFound > 0 ? Colors.Gold : Colors.DarkGrey;
+    title = `💣 Mines — ${s.mines} mine${s.mines !== 1 ? 's' : ''}`;
+    if (gemsFound > 0) {
+      desc = [
+        `💎 **${gemsFound}** found  •  **${s.multiplier.toFixed(2)}×**  •  Cash Out: **${fmt(payout)}**`,
+        nextMult ? `➡️ Next gem: **${nextMult.toFixed(2)}×** → ${fmt(nextPay)}` : `🎯 All gems found — cash out now!`,
+      ].join('\n');
+    } else {
+      desc = [
+        `**Stake:** ${fmt(s.stake)}  •  **Mines:** ${s.mines}  •  **Safe tiles:** ${safeTotal}`,
+        nextMult ? `💡 First gem pays **${nextMult.toFixed(2)}×** → ${fmt(nextPay)}` : '',
+      ].filter(Boolean).join('\n');
+    }
+  }
+
   const rows = [];
   for (let r = 0; r < 4; r++) {
     const row = new ActionRowBuilder();
     for (let c = 0; c < 5; c++) {
-      const idx = r * 5 + c;
+      const idx    = r * 5 + c;
       const isBomb = s.bombs.has(idx);
       const isOpen = s.revealed.has(idx) || revealAll;
       let label = '⬜', style = ButtonStyle.Secondary;
@@ -211,15 +242,13 @@ function renderBoard(s, revealAll = false) {
   } else {
     rows.push(new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('mines:cashout')
-        .setLabel(`Cash Out — ${fmt(BigInt(Math.floor(Number(s.stake) * s.multiplier)))}`)
-        .setStyle(ButtonStyle.Primary).setDisabled(s.revealed.size === 0),
+        .setLabel(gemsFound > 0 ? `💰 Cash Out — ${fmt(payout)}` : 'Cash Out')
+        .setStyle(ButtonStyle.Primary).setDisabled(gemsFound === 0),
     ));
   }
 
   return {
-    embeds: [new EmbedBuilder().setColor(Colors.Gold)
-      .setTitle('💣 Mines')
-      .setDescription(`Stake: ${fmt(s.stake)} • Mines: ${s.mines} • Multiplier: **${s.multiplier.toFixed(2)}×**`)],
+    embeds: [new EmbedBuilder().setColor(color).setTitle(title).setDescription(desc)],
     components: rows,
   };
 }
@@ -244,7 +273,7 @@ async function revealTile(i, r, c) {
     await q(`UPDATE bets SET payout=0, result='loss', settled_at=now() WHERE id=$1`, [s.betId]);
     await clearSession(s.userId);
     logBetResult(i.client, { user: s.username, discordId: i.user.id, game: 'mines', stake: s.stake.toString(), payout: '0', result: 'loss' });
-    return i.update(renderBoard(s, true));
+    return i.update(renderBoard(s, true, 'loss'));
   }
   s.multiplier = payoutMultiplier(s.revealed.size, s.mines);
   await putSession(s.userId, i.user.id, s);
@@ -263,8 +292,5 @@ async function cashOut(i) {
   if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Mines', payout).catch(() => {});
   await clearSession(s.userId);
-  await i.update({
-    ...renderBoard({ ...s, revealed: new Set(Array.from({ length: 20 }, (_, k) => k)) }, true),
-    content: `💰 Cashed out: ${fmt(payout)} (${s.multiplier.toFixed(2)}×)`,
-  });
+  await i.update(renderBoard(s, true, 'win'));
 }

@@ -204,23 +204,46 @@ async function executeStartHand(i, amount) {
     logBetResult(i.client, { user: i.user.username, discordId: i.user.id, game: 'blackjack', stake: s.stake.toString(), payout: payout.toString(), result: 'win' });
     if (payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
       broadcastBigWin(i.client, i.user.username, 'Blackjack', payout).catch(() => {});
-    return i.reply({ ephemeral: true,
-      content: `🎉 Blackjack! ${fmt(payout)} (3:2)`,
-      ...render(s, true),
-    });
+    return i.reply({ ephemeral: true, ...render(s, true, 'natural') });
   }
 
   await i.reply({ ephemeral: true, ...render(s, false) });
 }
 
-function render(s, reveal) {
-  const dealerView = reveal ? s.dealer.join(' ') : `${s.dealer[0]} 🂠`;
-  const dealerVal  = reveal ? handValue(s.dealer) : '?';
-  const e = new EmbedBuilder().setColor(Colors.Gold).setTitle('🃏 Blackjack')
+function displayCard(c) {
+  return c === '🂠' ? '🂠'
+    : c.replace('♥', '♥️').replace('♦', '♦️').replace('♠', '♠️').replace('♣', '♣️');
+}
+
+function displayHand(cards) {
+  return cards.map(c => `\`${displayCard(c)}\``).join('  ');
+}
+
+function render(s, reveal, outcome = null) {
+  const dealerCards = reveal ? s.dealer : [s.dealer[0], '🂠'];
+  const dealerVal   = reveal ? handValue(s.dealer) : '?';
+  const playerVal   = handValue(s.player);
+  const payout      = outcome === 'win' ? s.stake * 2n
+                    : outcome === 'natural' ? s.stake + BigInt(Math.floor(Number(s.stake) * 1.5))
+                    : outcome === 'push' ? s.stake : 0n;
+
+  let color = Colors.Gold, title = '🃏 Blackjack';
+  if (outcome === 'win')     { color = Colors.Green;  title = '🏆 You Win!'; }
+  if (outcome === 'natural') { color = Colors.Gold;   title = '🃏 Blackjack! — Natural 21'; }
+  if (outcome === 'push')    { color = 0x888888;      title = '🤝 Push — Stake Returned'; }
+  if (outcome === 'bust')    { color = Colors.Red;    title = '💥 Bust!'; }
+  if (outcome === 'loss')    { color = Colors.Red;    title = '❌ Dealer Wins'; }
+
+  const e = new EmbedBuilder().setColor(color).setTitle(title)
     .addFields(
-      { name: 'Dealer', value: `${dealerView} (${dealerVal})` },
-      { name: 'You',    value: `${s.player.join(' ')} (${handValue(s.player)})` },
+      { name: `🂠 Dealer  (${dealerVal})`, value: displayHand(dealerCards), inline: false },
+      { name: `👤 You  (${playerVal})`,    value: displayHand(s.player),    inline: false },
     );
+
+  if (outcome && payout > 0n)
+    e.addFields({ name: outcome === 'push' ? 'Returned' : 'Payout', value: fmt(payout), inline: true });
+  if (!reveal)
+    e.addFields({ name: 'Stake', value: fmt(s.stake), inline: true });
 
   const row = reveal
     ? new ActionRowBuilder().addComponents(
@@ -230,7 +253,7 @@ function render(s, reveal) {
     : new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('bj:hit').setLabel('Hit').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('bj:stand').setLabel('Stand').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('bj:double').setLabel('Double').setStyle(ButtonStyle.Success)
+        new ButtonBuilder().setCustomId('bj:double').setLabel('Double Down').setStyle(ButtonStyle.Success)
           .setDisabled(s.player.length !== 2 || s.doubled),
       );
 
@@ -286,8 +309,6 @@ async function finish(i, s) {
   if (result === 'win' && payout >= toPaise(process.env.BIG_WIN_BROADCAST || 5000))
     broadcastBigWin(i.client, i.user.username, 'Blackjack', payout).catch(() => {});
 
-  await i.update({
-    ...render(s, true),
-    content: result === 'win' ? `💰 Win ${fmt(payout)}` : result === 'push' ? '↔️ Push' : '💀 Loss',
-  });
+  const outcome = pv > 21 ? 'bust' : result === 'win' ? 'win' : result === 'push' ? 'push' : 'loss';
+  await i.update(render(s, true, outcome));
 }
