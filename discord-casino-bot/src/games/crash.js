@@ -11,7 +11,7 @@ import { allow } from '../util/rateLimit.js';
 import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
 
 const TICK_MS    = 2_000;  // update multiplier every 2s (easier on mobile)
-const BETTING_MS = 15_000; // 15-second betting window before launch
+const BETTING_MS = 25_000; // 25-second betting window before launch
 
 let state = null;
 const resultMsgIds = [];
