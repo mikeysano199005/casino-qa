@@ -13,20 +13,20 @@ import { logBetResult, logRound, broadcastBigWin } from '../admin/logs.js';
 const TICK_MS    = 2_000;
 const BETTING_MS = 25_000;
 
-let state   = null;
-let ticking = false;  // prevents concurrent tick() execution
+let state      = null;
+let ticking    = false;
+let panelMsgId = null;  // module-level — survives across rounds, so we always EDIT, never post new
 
 const resultMsgIds = [];
 const lastResults  = [];
-const lastBet      = new Map(); // discordId -> amount (₹)
+const lastBet      = new Map();
 
-// ── Result history (keeps 1 message, auto-removes the previous) ───────
+// ── Result history ────────────────────────────────────────────────────
 async function pushResult(channel, embed) {
   const msg = await channel.send({ embeds: [embed] }).catch(() => null);
   if (!msg) return;
-  if (resultMsgIds.length > 0) {
+  if (resultMsgIds.length > 0)
     channel.messages.fetch(resultMsgIds.shift()).then(m => m.delete()).catch(() => {});
-  }
   resultMsgIds.push(msg.id);
 }
 
@@ -35,6 +35,7 @@ export async function startCrashLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[crash] no channel');
 
+  // Wipe all stale bot messages on restart
   const fetched = await channel.messages.fetch({ limit: 100 }).catch(() => null);
   if (fetched) {
     const botMsgs = [...fetched.filter(m => m.author.id === client.user.id).values()];
@@ -43,12 +44,13 @@ export async function startCrashLoop(client, channelId) {
         for (const m of botMsgs) await m.delete().catch(() => {});
       });
   }
+  panelMsgId = null; // reset after wipe
 
   await openRound(channel);
   setInterval(() => tick(channel).catch(e => console.error('[crash tick]', e)), TICK_MS);
 }
 
-// ── Round lifecycle ───────────────────────────────────────────────────
+// ── Round setup ───────────────────────────────────────────────────────
 function computeCrashAt(preset, r) {
   let m;
   if (preset === 'house')        m = Math.max(1.00, 0.99 / Math.max(0.0001, 1 - r));
@@ -64,8 +66,7 @@ async function openRound(channel) {
   const clientSeed = Date.now().toString(36);
   const preset     = await getPreset('crash');
   const m          = computeCrashAt(preset, rngFloat(serverSeed, clientSeed, 0));
-
-  const { rows } = await q(
+  const { rows }   = await q(
     `INSERT INTO game_rounds(game,server_seed_hash,client_seed,nonce,preset_mode,outcome)
      VALUES('crash',$1,$2,0,$3,$4) RETURNING *`,
     [hash(serverSeed), clientSeed, preset, { crashAt: m }]
@@ -80,39 +81,34 @@ async function openRound(channel) {
     phase:         'betting',
     bettingEndsAt: Date.now() + BETTING_MS,
     startedAt:     null,
-    panelMsgId:    null,
     channel,
   };
-  await sendPanel(channel);  // always post fresh on new round
+  // Render immediately so the panel appears / updates right away
+  await renderPanel(channel);
 }
 
-function multiplierAt(elapsedMs) {
-  return +(Math.pow(1.07, elapsedMs / 1000)).toFixed(2);
+function multiplierAt(ms) {
+  return +(Math.pow(1.07, ms / 1000)).toFixed(2);
 }
 
-// ── Panel rendering ───────────────────────────────────────────────────
-// Only tick() calls renderPanel — no concurrent senders possible
+// ── Panel (always edit existing, only send-new when message is gone) ──
 async function renderPanel(channel) {
-  if (!state || !state.panelMsgId) return;
-  const msg = await channel.messages.fetch(state.panelMsgId).catch(() => null);
-  if (!msg) { state.panelMsgId = null; return; }
-  const { embeds, components } = buildPanel();
-  await msg.edit({ embeds, components }).catch(() => {});
-}
-
-// Post a brand-new panel message (call when starting round or after delete)
-async function sendPanel(channel) {
   if (!state) return;
   const { embeds, components } = buildPanel();
+  if (panelMsgId) {
+    const msg = await channel.messages.fetch(panelMsgId).catch(() => null);
+    if (msg) { await msg.edit({ embeds, components }).catch(() => {}); return; }
+    panelMsgId = null; // message was deleted externally — post fresh below
+  }
   const sent = await channel.send({ embeds, components });
-  state.panelMsgId = sent.id;
+  panelMsgId = sent.id;
 }
 
 function totalPot() {
   return state.bets.reduce((s, b) => s + b.stake, 0n);
 }
 
-function historyLine() {
+function histLine() {
   return lastResults.length
     ? lastResults.slice(0, 10).map(v => `${v.toFixed(2)}×`).join('  ')
     : '—';
@@ -129,10 +125,10 @@ function buildPanel() {
       .setTitle('🚀 Crash — Betting Open')
       .setDescription(`⏰ Round launches **<t:${Math.floor(bettingEndsAt / 1000)}:R>**`)
       .addFields(
-        { name: '💰 Pot',      value: fmt(totalPot()),       inline: true },
-        { name: '👥 Bets',     value: String(bets.length),   inline: true },
-        { name: '⏱ Time left', value: `${secsLeft}s`,        inline: true },
-        { name: '📊 Last 10',  value: historyLine() },
+        { name: '💰 Pot',      value: fmt(totalPot()),      inline: true },
+        { name: '👥 Bets',     value: String(bets.length),  inline: true },
+        { name: '⏱ Time left', value: `${secsLeft}s`,       inline: true },
+        { name: '📊 Last 10',  value: histLine() },
       );
     bettingOpen = true; cashoutOpen = false;
 
@@ -140,12 +136,12 @@ function buildPanel() {
     const color = multiplier < 2 ? Colors.Green : multiplier < 5 ? 0xFEE75C : 0xFF8C00;
     embed = new EmbedBuilder()
       .setColor(color)
-      .setTitle(`🚀  ${multiplier.toFixed(2)}×  ─ LIVE`)
+      .setTitle(`🚀  ${multiplier.toFixed(2)}×  — LIVE`)
       .setDescription('🔴 **Cash out before it crashes!**')
       .addFields(
-        { name: '💰 Pot',       value: fmt(totalPot()),                        inline: true },
-        { name: '✅ Cashed out', value: `${cashedOut.size} / ${bets.length}`, inline: true },
-        { name: '📊 Last 10',   value: historyLine() },
+        { name: '💰 Pot',        value: fmt(totalPot()),                       inline: true },
+        { name: '✅ Cashed out', value: `${cashedOut.size} / ${bets.length}`,  inline: true },
+        { name: '📊 Last 10',   value: histLine() },
       );
     bettingOpen = false; cashoutOpen = true;
 
@@ -154,7 +150,7 @@ function buildPanel() {
       .setColor(Colors.Red)
       .setTitle(`💥 Crashed @ ${crashAt.toFixed(2)}×`)
       .setDescription('Next round starting soon…')
-      .addFields({ name: '📊 Last 10', value: historyLine() });
+      .addFields({ name: '📊 Last 10', value: histLine() });
     bettingOpen = false; cashoutOpen = false;
   }
 
@@ -164,7 +160,6 @@ function buildPanel() {
     new ButtonBuilder().setCustomId('crash:cashout').setLabel('💸 Cash Out').setStyle(ButtonStyle.Primary).setDisabled(!cashoutOpen),
     new ButtonBuilder().setCustomId('crash:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),
   );
-
   return { embeds: [embed], components: [row] };
 }
 
@@ -173,37 +168,27 @@ async function tick(channel) {
   if (!state || ticking) return;
   ticking = true;
   try {
-    // ─ Betting phase ─
     if (state.phase === 'betting') {
       if (Date.now() >= state.bettingEndsAt) {
-        // Re-derive crashAt based on amount preset of median bet
+        // Re-derive crashAt from amount preset of median bet
         if (state.bets.length > 0) {
-          const sorted = [...state.bets.map(b => b.stake)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-          const medianStake = sorted[Math.floor(sorted.length / 2)];
-          const amtPreset   = await resolveAmountPreset(medianStake);
+          const sorted     = [...state.bets.map(b => b.stake)].sort((a, b) => (a < b ? -1 : 1));
+          const midStake   = sorted[Math.floor(sorted.length / 2)];
+          const amtPreset  = await resolveAmountPreset(midStake);
           if (amtPreset) {
-            const r2 = rngFloat(state.serverSeed, 'amt', 0);
-            state.crashAt = computeCrashAt(amtPreset, r2);
+            state.crashAt = computeCrashAt(amtPreset, rngFloat(state.serverSeed, 'amt', 0));
             await q(`UPDATE game_rounds SET outcome=$1 WHERE id=$2`,
               [JSON.stringify({ crashAt: state.crashAt }), state.round.id]);
           }
         }
-        // Transition betting → flying: delete old panel, post new flying panel
-        if (state.panelMsgId) {
-          channel.messages.fetch(state.panelMsgId).then(m => m.delete()).catch(() => {});
-          state.panelMsgId = null;
-        }
         state.phase     = 'flying';
         state.startedAt = Date.now();
-        await sendPanel(channel);
-      } else {
-        // Edit in-place every tick to update countdown and bet count
-        await renderPanel(channel);
       }
+      // Always render (edit or post) — updates countdown and bet count every tick
+      await renderPanel(channel);
       return;
     }
 
-    // ─ Flying phase ─
     if (state.phase === 'flying') {
       const elapsed    = Date.now() - state.startedAt;
       state.multiplier = multiplierAt(elapsed);
@@ -211,12 +196,9 @@ async function tick(channel) {
       if (state.multiplier >= state.crashAt) {
         state.multiplier = state.crashAt;
         state.phase      = 'crashed';
-        // Delete live panel — result message from settle() replaces it
-        if (state.panelMsgId) {
-          channel.messages.fetch(state.panelMsgId).then(m => m.delete()).catch(() => {});
-          state.panelMsgId = null;
-        }
-        await settle(channel);
+        await renderPanel(channel);  // update panel to show crashed state BEFORE result posts
+        await settle(channel);       // DB work + result message
+        state = null;
         setTimeout(() => openRound(channel).catch(e => console.error('[crash openRound]', e)), 4000);
         return;
       }
@@ -250,7 +232,6 @@ async function settle(channel) {
     logBetResult(channel.client, { user: b.username, discordId: b.discordId, game: 'crash',
       stake: b.stake.toString(), payout: payout.toString(), result: payout > 0n ? 'win' : 'loss' });
   }
-
   await q(
     `UPDATE game_rounds SET server_seed=$1, total_pool=$2, house_pnl=$3, ended_at=now() WHERE id=$4`,
     [state.serverSeed, pool.toString(), (pool - paid).toString(), state.round.id]
@@ -258,14 +239,13 @@ async function settle(channel) {
   logRound(channel.client, 'crash', state.round.id, {
     crashAt: state.crashAt, pool: pool.toString(), pnl: (pool - paid).toString(),
   });
-
   lastResults.unshift(state.crashAt);
   if (lastResults.length > 15) lastResults.pop();
 
   const survivors = state.bets.filter(b => state.cashedOut.has(b.userId));
   const desc = survivors.length
     ? survivors.map(b =>
-        `• **${b.username}** — cashed @ **${b.cashOutAt.toFixed(2)}×** → ${fmt(BigInt(Math.floor(Number(b.stake) * b.cashOutAt)))}`
+        `• **${b.username}** cashed @ **${b.cashOutAt.toFixed(2)}×** → ${fmt(BigInt(Math.floor(Number(b.stake) * b.cashOutAt)))}`
       ).join('\n')
     : '_Nobody cashed out._';
 
@@ -275,7 +255,7 @@ async function settle(channel) {
     .setDescription(`**Pool:** ${fmt(pool)}  •  **Paid:** ${fmt(paid)}\n\n${desc}`));
 }
 
-// ── Interaction routing ───────────────────────────────────────────────
+// ── Interactions ──────────────────────────────────────────────────────
 export async function handleInteraction(interaction) {
   if (interaction.isButton()) {
     const [, action] = interaction.customId.split(':');
@@ -325,7 +305,6 @@ async function executePlaceBet(i, amount) {
   try { u = await requireActive(i.user.id, i.user.username); }
   catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
 
-  // Auto-release any stuck mines/blackjack sessions so their locked funds are freed
   await clearStuckSessions(i.user.id).catch(() => {});
 
   const stake = toPaise(amount);
@@ -341,7 +320,6 @@ async function executePlaceBet(i, amount) {
   );
   state.bets.push({ userId: u.id, discordId: i.user.id, username: i.user.username, stake, betId: br[0].id });
   lastBet.set(i.user.id, amount);
-  // Panel updates on next tick — no concurrent panel sends from here
   await i.reply({ ephemeral: true, content: `✅ **${fmt(stake)}** placed! Cash out before it crashes 🚀` });
 }
 
@@ -364,11 +342,11 @@ function showRules(i) {
     ephemeral: true,
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🚀 Crash — How to Play')
       .addFields(
-        { name: 'Objective', value: 'Bet before the round starts. Watch the multiplier climb from **1×** and cash out before it crashes to lock in profit.' },
-        { name: 'Phases', value: '🔵 **Betting (25s)** — place your bet\n🟡 **LIVE** — multiplier climbs, cash out anytime\n💥 **Crashed** — round ends, next round in 4s' },
+        { name: 'Objective', value: 'Bet before the round. Watch the multiplier rise from **1×** and cash out before it crashes to lock in profit.' },
+        { name: 'Phases', value: '🔵 **Betting (25s)** — place your bet\n🟡 **LIVE** — multiplier climbs, cash out anytime\n💥 **Crashed** — next round opens in 4s' },
         { name: 'Payouts', value: 'Payout = **Stake × Multiplier at cashout**\nExample: ₹500 bet, cash out @ **3.5×** = **₹1,750**' },
         { name: 'Bet Limits', value: `Min ₹${process.env.MIN_BET || 10} — Max ₹${process.env.MAX_BET || 10000}` },
-        { name: 'Fairness', value: 'Crash point locked before the round. Server seed hash shown upfront, revealed after crash — fully verifiable.' },
+        { name: 'Fairness', value: 'Crash point is locked in before the round. Server seed hash shown upfront — revealed after crash.' },
       )],
   });
 }
