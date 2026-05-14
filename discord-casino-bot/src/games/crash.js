@@ -14,6 +14,7 @@ const TICK_MS    = 2_000;  // update multiplier every 2s (easier on mobile)
 const BETTING_MS = 25_000; // 25-second betting window before launch
 
 let state = null;
+let ticking = false;
 const resultMsgIds = [];
 const lastResults  = [];
 const lastBet      = new Map(); // discordId -> amount (₹)
@@ -139,7 +140,9 @@ async function renderPanel(channel, forceNew = false) {
 }
 
 async function tick(channel) {
-  if (!state) return;
+  if (!state || ticking) return;
+  ticking = true;
+  try {
 
   if (state.phase === 'betting') {
     if (Date.now() >= state.bettingEndsAt) {
@@ -166,7 +169,7 @@ async function tick(channel) {
       await renderPanel(channel, true); // forceNew=true: delete betting msg, post fresh flying msg
     }
     // No panel edit during betting — Discord's <t:R> renders the countdown client-side
-    return;
+    return void (ticking = false);
   }
 
   if (state.phase === 'flying') {
@@ -183,10 +186,12 @@ async function tick(channel) {
       }
       await settle(channel);
       setTimeout(() => openRound(channel), 4000);
-      return;
+      return void (ticking = false);
     }
     await renderPanel(channel);
   }
+
+  } finally { ticking = false; }
 }
 
 async function settle(channel) {
