@@ -112,8 +112,14 @@ export async function startMatkaLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[matka] no channel');
   // Clear stale bot messages on restart
-  const old = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  if (old) for (const m of old.filter(m => m.author.id === client.user.id).values()) await m.delete().catch(() => {});
+  const old = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (old) {
+    const botMsgs = [...old.filter(m => m.author.id === client.user.id).values()];
+    if (botMsgs.length > 0)
+      await channel.bulkDelete(botMsgs).catch(async () => {
+        for (const m of botMsgs) await m.delete().catch(() => {});
+      });
+  }
   await openRound();
   await renderPanel(channel);
   setInterval(() => tick(channel).catch(e => console.error('[matka]', e)), ROUND_MS);

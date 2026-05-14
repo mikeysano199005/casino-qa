@@ -31,9 +31,15 @@ async function pushResult(channel, embed) {
 export async function startCrashLoop(client, channelId) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return console.warn('[crash] no channel');
-  // Delete old bot messages so stale buttons don't persist after restart
-  const old = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  if (old) for (const m of old.filter(m => m.author.id === client.user.id).values()) await m.delete().catch(() => {});
+  // Delete old bot messages so stale panels don't pile up after restarts
+  const old = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (old) {
+    const botMsgs = [...old.filter(m => m.author.id === client.user.id).values()];
+    if (botMsgs.length > 0)
+      await channel.bulkDelete(botMsgs).catch(async () => {
+        for (const m of botMsgs) await m.delete().catch(() => {});
+      });
+  }
   await openRound(channel);
   setInterval(() => tick(channel).catch(e => console.error('[crash]', e)), TICK_MS);
 }
