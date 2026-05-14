@@ -40,21 +40,18 @@ function buildEmbeds(k, recentBets) {
   const ggrColor = ggr >= 0n ? Colors.Green : Colors.Red;
 
   const main = new EmbedBuilder()
-    .setColor(Colors.DarkGold)
+    .setColor(ggrColor)
     .setTitle('📡 Live Dashboard')
     .addFields(
-      { name: '👥 Users',          value: `**${k.total_users}** total • **${k.active_24h}** active 24h`, inline: false },
-      { name: '🎮 Live Sessions',  value: `**${k.live_sessions}** (mines / blackjack in progress)`,       inline: false },
-      { name: '​', value: '​', inline: false },
-      { name: '🎯 Bets — last 5m', value: `**${k.bets_5m}** bets • ${fmt(BigInt(k.vol_5m))} staked`,    inline: true },
-      { name: '🎯 Bets — last 1h', value: `**${k.bets_1h}** bets • ${fmt(BigInt(k.vol_1h))} staked`,    inline: true },
-      { name: '​', value: '​', inline: false },
-      { name: `📊 GGR (24h)`,      value: `**${fmt(ggr)}**`,                                             inline: true },
-      { name: '💰 Deposits (24h)', value: `**${k.dep_count}** • ${fmt(BigInt(k.dep_vol))}`,              inline: true },
-      { name: '🏧 Payouts (24h)',  value: `**${k.wd_count}** paid • ${fmt(BigInt(k.wd_vol))}`,           inline: true },
-      { name: '⏳ Pending WDs',    value: `**${k.pending_wd}** awaiting approval`,                       inline: false },
+      { name: '👥 Players',         value: `**${k.total_users}** registered • **${k.active_24h}** played today`,          inline: false },
+      { name: '🎮 Active Games',    value: `**${k.live_sessions}** live (Mines / Blackjack mid-hand)`,                    inline: false },
+      { name: '🎯 Bets — last 5m',  value: `**${k.bets_5m}** bets • ${fmt(BigInt(k.vol_5m))} staked`,                   inline: true },
+      { name: '🎯 Bets — last 1h',  value: `**${k.bets_1h}** bets • ${fmt(BigInt(k.vol_1h))} staked`,                   inline: true },
+      { name: `📊 House Profit (24h)`, value: `**${fmt(ggr)}**\n_Bets collected − Winnings paid out_`,                   inline: false },
+      { name: '💰 Deposits today',  value: `**${k.dep_count}** deposits • ${fmt(BigInt(k.dep_vol))} received`,            inline: true },
+      { name: '🏧 Withdrawals paid', value: `**${k.wd_count}** paid • ${fmt(BigInt(k.wd_vol))} sent`,                    inline: true },
+      { name: '⏳ Pending Withdrawals', value: `**${k.pending_wd}** waiting for your approval — check Admin Panel`,       inline: false },
     )
-    .setColor(ggrColor)
     .setFooter({ text: 'Live • updates every 30s' })
     .setTimestamp();
 

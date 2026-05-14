@@ -108,11 +108,13 @@ function bankModal(i) {
 }
 
 async function createDeposit(i) {
+  // Defer immediately — Cashfree API can take >3s and Discord kills unacknowledged interactions
+  await i.deferReply({ ephemeral: true });
   const amount = Number(i.fields.getTextInputValue('amount'));
   const min = Number(process.env.MIN_DEPOSIT || 100);
   const max = Number(process.env.MAX_DEPOSIT || 50000);
   if (!Number.isFinite(amount) || amount < min || amount > max)
-    return i.reply({ ephemeral: true, content: `Deposit must be between ₹${min} and ₹${max}.` });
+    return i.editReply({ content: `Deposit must be between ₹${min} and ₹${max}.` });
 
   const u = await upsertUser(i.user.id, i.user.username);
   const orderId = `cf_${u.id.slice(0, 8)}_${Date.now()}`;
@@ -147,13 +149,13 @@ async function createDeposit(i) {
       `INSERT INTO deposits(user_id,cashfree_order_id,amount,status) VALUES($1,$2,$3,'created')`,
       [u.id, orderId, toPaise(amount).toString()]
     );
-    await i.reply({ ephemeral: true,
+    await i.editReply({
       embeds: [new EmbedBuilder().setColor(Colors.Green).setTitle('💳 Deposit')
         .setDescription(`[Pay ₹${amount} via Cashfree](${link})\n\nWallet credits automatically after payment.`)]
     });
   } catch (e) {
     logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: e.response?.data || e.message });
-    await i.reply({ ephemeral: true, content: '⚠️ Could not create deposit, try again later.' });
+    await i.editReply({ content: '⚠️ Could not create deposit — try again later.' });
   }
 }
 

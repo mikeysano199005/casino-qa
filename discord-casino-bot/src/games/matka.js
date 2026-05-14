@@ -16,6 +16,7 @@ const MIN_BET  = 100;     // ₹100 minimum — Matka only
 const MAX_BET  = 500_000; // ₹5,00,000 maximum — Matka only
 
 let state              = null;
+let settling           = false; // true while settling the previous round
 let _client            = null;
 let predictionEnabled  = true;  // admin-togglable at runtime
 
@@ -192,9 +193,10 @@ async function pushResult(channel, embed) {
 // ─── Tick / settle ────────────────────────────────────────────────────
 
 async function tick(channel) {
-  if (!state) return;
+  if (!state || settling) return;
   const settled = state;
   state = null;
+  settling = true;
 
   for (const id of allPanelMsgIds)
     channel.messages.fetch(id).then(m => m.delete()).catch(() => {});
@@ -248,6 +250,7 @@ async function tick(channel) {
 
   const settledRoundId = settled.round.id;
   await openRound();
+  settling = false;
   // Deliver paid VIP predictions to users who bet in the settled round
   if (state?.predictedWinner !== null && state?.predictedWinner !== undefined) {
     deliverMatkaPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>
@@ -297,7 +300,8 @@ export async function handleInteraction(i) {
 }
 
 async function openBetModal(i, number) {
-  if (!state) return i.reply({ ephemeral: true, content: 'No round in progress.' });
+  if (settling) return i.reply({ ephemeral: true, content: '⏱ Round is settling — new round opens in a moment, please try again!' });
+  if (!state)  return i.reply({ ephemeral: true, content: '⏱ No round in progress — one is opening shortly.' });
   if (state.endsAt - Date.now() < 1500) return i.reply({ ephemeral: true, content: '⏱ Round closing — bets locked.' });
 
   const existing = state.bets.find(b => b.discordId === i.user.id);

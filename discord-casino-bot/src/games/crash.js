@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset } from '../repo.js';
+import { applyTx, requireActive, getPreset, clearStuckSessions } from '../repo.js';
 import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, hash, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
@@ -324,6 +324,9 @@ async function executePlaceBet(i, amount) {
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
   catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+
+  // Auto-release any stuck mines/blackjack sessions so their locked funds are freed
+  await clearStuckSessions(i.user.id).catch(() => {});
 
   const stake = toPaise(amount);
   try {

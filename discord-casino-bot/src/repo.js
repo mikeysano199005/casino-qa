@@ -95,6 +95,29 @@ export async function deleteSession(userId, game) {
   await q(`DELETE FROM game_sessions WHERE user_id=$1 AND game=$2`, [userId, game]);
 }
 
+// Releases locked funds from any abandoned mines/blackjack sessions for a Discord user.
+// Call this before placing bets in games that don't auto-clear sessions (dice, colour, crash).
+export async function clearStuckSessions(discordId) {
+  const { rows } = await q(
+    `SELECT gs.user_id, gs.game, gs.data, gs.bet_id
+     FROM game_sessions gs
+     JOIN users u ON u.id = gs.user_id
+     WHERE u.discord_id = $1`,
+    [discordId]
+  );
+  for (const row of rows) {
+    const stake = BigInt(row.data?.stake ?? 0);
+    if (stake > 0n)
+      await applyTx({ userId: row.user_id, type: 'bet', amount: 0n, lockDelta: -stake,
+        ref: null, meta: { game: row.game, result: 'auto_abandoned' } }).catch(() => {});
+    if (row.bet_id)
+      await q(`UPDATE bets SET result='loss', settled_at=now() WHERE id=$1 AND result='pending'`,
+        [row.bet_id]).catch(() => {});
+    await q(`DELETE FROM game_sessions WHERE user_id=$1 AND game=$2`, [row.user_id, row.game]).catch(() => {});
+  }
+  return rows.length;
+}
+
 // ─── Referrals ───────────────────────────────────────────────────────
 
 const REFERRAL_BONUS = 5000n; // ₹50 per referral

@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset, getUserPreset } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset, clearStuckSessions } from '../repo.js';
 import { resolveAmountPreset } from '../util/amountPreset.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
@@ -83,6 +83,10 @@ async function executeBet(i, amount, side, target) {
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
   catch { return i.reply({ ephemeral: true, content: '🚫 Your account is suspended.' }); }
+
+  // Auto-release any stuck mines/blackjack sessions so their locked funds are freed
+  await clearStuckSessions(i.user.id).catch(() => {});
+
   const stake = toPaise(amount);
 
   const winChance = side === 'UNDER' ? (target - 1) / 100 : (99 - target) / 100;
@@ -91,7 +95,7 @@ async function executeBet(i, amount, side, target) {
   try {
     await applyTx({ userId: u.id, type: 'bet', amount: -stake, lockDelta: stake,
       ref: null, meta: { game: 'dice', side, target } });
-  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient.' }); }
+  } catch { return i.reply({ ephemeral: true, content: '💸 Insufficient balance.' }); }
 
   const seed = newServerSeed();
   const preset = (await getUserPreset(u.id, 'dice')) ?? (await resolveAmountPreset(stake)) ?? await getPreset('dice');
