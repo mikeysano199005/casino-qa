@@ -123,8 +123,8 @@ export async function startMatkaLoop(client, channelId) {
   }
   await openRound();
   await renderPanel(channel);
-  setInterval(() => tick(channel).catch(e => console.error('[matka]', e)), ROUND_MS);
-  // Edit-only refresh every 8 s — never posts a new message
+  scheduleNextTick(channel);
+  // Edit-only countdown refresh every 8 s
   setInterval(async () => {
     if (!state?.panelMessageId) return;
     try {
@@ -132,6 +132,12 @@ export async function startMatkaLoop(client, channelId) {
       await msg.edit({ embeds: [buildEmbed()], components: buildRows() });
     } catch {}
   }, 8_000);
+}
+
+// Schedule settlement exactly at endsAt — eliminates drift from fixed setInterval
+function scheduleNextTick(channel) {
+  const delay = Math.max(500, state.endsAt - Date.now());
+  setTimeout(() => tick(channel).catch(e => console.error('[matka]', e)), delay);
 }
 
 // ─── Panel rendering ──────────────────────────────────────────────────
@@ -258,6 +264,7 @@ async function tick(channel) {
     );
   }
   await renderPanel(channel);
+  scheduleNextTick(channel); // schedule next settlement exactly at new endsAt
 }
 
 // ─── How-to-play guide ────────────────────────────────────────────────
