@@ -1,6 +1,6 @@
 import {
   SlashCommandBuilder, ModalBuilder, ActionRowBuilder,
-  TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
+  TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle, Colors,
 } from 'discord.js';
 import axios from 'axios';
 import { q } from '../db/index.js';
@@ -82,16 +82,29 @@ export async function handleModal(i) {
       [orderId, name, phone, toPaise(amount).toString(), i.channelId],
     );
 
+    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}`;
+
     await i.channel.send({
       embeds: [new EmbedBuilder()
-        .setColor(Colors.Green)
+        .setColor(0x00C851)
         .setTitle('💳 Payment Request')
+        .setDescription('Scan the QR code below or click **Pay Now** to complete payment.')
         .addFields(
-          { name: 'Buyer',  value: name,       inline: true },
-          { name: 'Amount', value: `₹${amount}`, inline: true },
+          { name: '👤 Buyer',  value: `\`${name}\``,     inline: true },
+          { name: '💰 Amount', value: `**₹${amount}**`,  inline: true },
+          { name: '📋 Status', value: '⏳ Pending',       inline: true },
         )
-        .setDescription(`**[Click here to pay ₹${amount}](${link})**\n\nPayment will be confirmed here automatically once complete.`)
+        .setImage(qr)
+        .setFooter({ text: '✅ Payment confirmed here automatically once complete' })
+        .setTimestamp()
       ],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel(`Pay ₹${amount} Now`)
+          .setStyle(ButtonStyle.Link)
+          .setURL(link)
+          .setEmoji('💳'),
+      )],
     });
 
     await i.editReply({ content: '✅ Payment link posted in this channel.' });

@@ -95,16 +95,19 @@ export function startWebhookServer(client) {
 
         try {
           const ch = await client.channels.fetch(sale.ticket_channel_id);
-          const { EmbedBuilder, Colors } = await import('discord.js');
+          const { EmbedBuilder } = await import('discord.js');
+          const rupees = Number(BigInt(sale.amount)) / 100;
           await ch.send({
             embeds: [new EmbedBuilder()
-              .setColor(Colors.Green)
+              .setColor(0x00C851)
               .setTitle('✅ Payment Confirmed!')
+              .setDescription(`**${sale.buyer_name}** has successfully paid **₹${rupees}**.\n\n> Please deliver the product now.`)
               .addFields(
-                { name: 'Buyer',  value: sale.buyer_name,                          inline: true },
-                { name: 'Amount', value: `₹${Number(BigInt(sale.amount)) / 100}`, inline: true },
+                { name: '👤 Buyer',  value: `\`${sale.buyer_name}\``, inline: true },
+                { name: '💰 Amount', value: `**₹${rupees}**`,         inline: true },
+                { name: '📋 Status', value: '✅ Paid',                 inline: true },
               )
-              .setDescription('Payment received. Please deliver the product.')
+              .setTimestamp()
             ],
           });
         } catch (e) { console.warn('[sale webhook] channel notify:', e.message); }
