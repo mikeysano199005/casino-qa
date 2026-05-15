@@ -76,6 +76,43 @@ export function startWebhookServer(client) {
       const status  = (payload?.data?.payment?.payment_status || payload?.type || '').toUpperCase();
       const paid    = Number(payload?.data?.payment?.payment_amount || payload?.data?.order?.order_amount || 0);
 
+      // ── Cheat sales (order_id prefix: sale_) ──────────────────────────
+      if (String(orderId).startsWith('sale_')) {
+        const { rows: sRows } = await q(`SELECT * FROM cheat_sales WHERE cashfree_order_id=$1`, [orderId]);
+        const sale = sRows[0];
+        if (!sale) return res.status(200).send('unknown sale order');
+
+        if (!status.includes('SUCCESS')) {
+          await q(`UPDATE cheat_sales SET status='failed' WHERE cashfree_order_id=$1 AND credited_at IS NULL`, [orderId]);
+          return res.status(200).send('not success');
+        }
+
+        const { rowCount } = await q(
+          `UPDATE cheat_sales SET status='success', credited_at=now() WHERE cashfree_order_id=$1 AND credited_at IS NULL`,
+          [orderId],
+        );
+        if (!rowCount) return res.status(200).send('already credited');
+
+        try {
+          const ch = await client.channels.fetch(sale.ticket_channel_id);
+          const { EmbedBuilder, Colors } = await import('discord.js');
+          await ch.send({
+            embeds: [new EmbedBuilder()
+              .setColor(Colors.Green)
+              .setTitle('✅ Payment Confirmed!')
+              .addFields(
+                { name: 'Buyer',  value: sale.buyer_name,                          inline: true },
+                { name: 'Amount', value: `₹${Number(BigInt(sale.amount)) / 100}`, inline: true },
+              )
+              .setDescription('Payment received. Please deliver the product.')
+            ],
+          });
+        } catch (e) { console.warn('[sale webhook] channel notify:', e.message); }
+
+        return res.status(200).send('ok');
+      }
+
+      // ── Casino deposits ───────────────────────────────────────────────
       // Fast lookup (no lock) to handle non-success and unknown orders cheaply
       const { rows } = await q(`SELECT * FROM deposits WHERE cashfree_order_id=$1`, [orderId]);
       const dep = rows[0];

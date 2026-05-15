@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, REST, Routes } from 'discord.js';
+import * as payCmd from './commands/pay.js';
 import { q } from './db/index.js';
 import { startColourLoop } from './games/colour.js';
 import { startCrashLoop }  from './games/crash.js';
@@ -54,6 +55,14 @@ const HANDLERS = {
 
 client.on(Events.InteractionCreate, async (i) => {
   try {
+    // Slash commands
+    if (i.isChatInputCommand()) {
+      if (i.commandName === 'pay') return payCmd.handleCommand(i);
+      return;
+    }
+    // pay modal
+    if (i.isModalSubmit() && i.customId === 'pay:create') return payCmd.handleModal(i);
+
     if (!(i.isButton() || i.isModalSubmit())) return;
     const ns = i.customId.split(':')[0];
     const fn = HANDLERS[ns];
@@ -77,6 +86,16 @@ client.on(Events.InteractionCreate, async (i) => {
 
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
+  // Register /pay slash command on the main guild (instant update, no 1-hour delay)
+  try {
+    const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, process.env.MAIN_GUILD_ID),
+      { body: [payCmd.command.toJSON()] },
+    );
+    console.log('✅ /pay command registered');
+  } catch (e) { console.warn('[slash register]', e.message); }
 
   // Refund stale game sessions older than 24 h (orphaned by a previous crash/restart)
   try {
