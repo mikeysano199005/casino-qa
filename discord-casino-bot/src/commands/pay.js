@@ -82,19 +82,16 @@ export async function handleModal(i) {
       [orderId, name, phone, toPaise(amount).toString(), i.channelId],
     );
 
-    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}`;
-
     await i.channel.send({
       embeds: [new EmbedBuilder()
         .setColor(0x00C851)
         .setTitle('💳 Payment Request')
-        .setDescription('Scan the QR code below or click **Pay Now** to complete payment.')
+        .setDescription('Click **Pay Now** to complete payment.')
         .addFields(
           { name: '👤 Buyer',  value: `\`${name}\``,     inline: true },
           { name: '💰 Amount', value: `**₹${amount}**`,  inline: true },
           { name: '📋 Status', value: '⏳ Pending',       inline: true },
         )
-        .setImage(qr)
         .setFooter({ text: '✅ Payment confirmed here automatically once complete' })
         .setTimestamp()
       ],
