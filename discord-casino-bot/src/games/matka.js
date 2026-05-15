@@ -179,8 +179,13 @@ function buildRows() {
 
 async function renderPanel(channel) {
   if (state.panelMessageId) {
-    const msg = await channel.messages.fetch(state.panelMessageId).catch(() => null);
-    if (msg) return msg.edit({ embeds: [buildEmbed()], components: buildRows() });
+    try {
+      const msg = await channel.messages.fetch(state.panelMessageId);
+      return msg.edit({ embeds: [buildEmbed()], components: buildRows() });
+    } catch (e) {
+      if (e.code !== 10008) return; // transient error — skip, don't duplicate
+      state.panelMessageId = null; // genuinely deleted — fall through to post new
+    }
   }
   const m = await channel.send({ embeds: [buildEmbed()], components: buildRows() });
   state.panelMessageId = m.id;

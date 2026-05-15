@@ -100,9 +100,16 @@ async function renderPanel(channel) {
   const { embeds, components } = buildPanel();
 
   if (panelMsgId && panelMsgId !== 'pending') {
-    const msg = await channel.messages.fetch(panelMsgId).catch(() => null);
-    if (msg) { await msg.edit({ embeds, components }).catch(() => {}); return; }
-    panelMsgId = null; // externally deleted — fall through to send
+    try {
+      const msg = await channel.messages.fetch(panelMsgId);
+      await msg.edit({ embeds, components }).catch(() => {});
+      return;
+    } catch (e) {
+      // Only treat as "gone" on Unknown Message (10008) — any other error
+      // (rate limit, network blip) keeps panelMsgId so we don't spawn a duplicate.
+      if (e.code !== 10008) return;
+      panelMsgId = null; // message genuinely deleted — fall through to send new
+    }
   }
 
   if (panelMsgId === 'pending') return; // another send already in flight
