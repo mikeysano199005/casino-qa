@@ -139,6 +139,13 @@ client.once(Events.ClientReady, async () => {
   botHeartbeat(client).catch(()=>{});
 });
 
+// Keep Express alive even if Discord login fails (bad token, network, etc.)
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err?.message ?? err);
+});
+
 startWebhookServer(client);
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN).catch(e => {
+  console.error('[FATAL] Discord login failed:', e.message);
+});
