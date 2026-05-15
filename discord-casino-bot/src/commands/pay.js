@@ -1,10 +1,13 @@
 import {
   SlashCommandBuilder, ModalBuilder, ActionRowBuilder,
-  TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle, Colors,
+  TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle,
 } from 'discord.js';
 import axios from 'axios';
 import { q } from '../db/index.js';
-import { toPaise, fmt } from '../util/money.js';
+import { toPaise } from '../util/money.js';
+
+const POLL_INTERVAL_MS = 5_000;
+const POLL_TIMEOUT_MS  = 30 * 60 * 1000; // 30 minutes
 
 export const command = new SlashCommandBuilder()
   .setName('pay')
@@ -59,8 +62,8 @@ export async function handleModal(i) {
 
   try {
     const res = await axios.post(`https://${env}/pg/orders`, {
-      order_id:      orderId,
-      order_amount:  amount,
+      order_id:       orderId,
+      order_amount:   amount,
       order_currency: 'INR',
       customer_details: {
         customer_id:    `buyer_${Date.now()}`,
@@ -88,9 +91,9 @@ export async function handleModal(i) {
         .setTitle('💳 Payment Request')
         .setDescription('Click **Pay Now** to complete payment.')
         .addFields(
-          { name: '👤 Buyer',  value: `\`${name}\``,     inline: true },
-          { name: '💰 Amount', value: `**₹${amount}**`,  inline: true },
-          { name: '📋 Status', value: '⏳ Pending',       inline: true },
+          { name: '👤 Buyer',  value: `\`${name}\``,    inline: true },
+          { name: '💰 Amount', value: `**₹${amount}**`, inline: true },
+          { name: '📋 Status', value: '⏳ Pending',      inline: true },
         )
         .setFooter({ text: '✅ Payment confirmed here automatically once complete' })
         .setTimestamp()
@@ -105,8 +108,66 @@ export async function handleModal(i) {
     });
 
     await i.editReply({ content: '✅ Payment link posted in this channel.' });
+
+    // Start polling — fires every 5s, gives up after 30 min
+    startPolling(i.client, orderId, i.channelId, name, amount, env);
+
   } catch (e) {
     console.error('[/pay]', e.response?.data || e.message);
     await i.editReply({ content: '⚠️ Could not create payment link — check Cashfree credentials.' });
   }
+}
+
+function startPolling(client, orderId, channelId, buyerName, amount, env) {
+  const startedAt = Date.now();
+  const pollHeaders = {
+    'x-api-version':   '2023-08-01',
+    'x-client-id':     process.env.CASHFREE_APP_ID,
+    'x-client-secret': process.env.CASHFREE_SECRET_KEY,
+  };
+
+  const timer = setInterval(async () => {
+    try {
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        clearInterval(timer);
+        console.log(`[/pay poll] timeout for ${orderId}`);
+        return;
+      }
+
+      const { data } = await axios.get(`https://${env}/pg/orders/${orderId}`, { headers: pollHeaders });
+      const status = data.order_status;
+
+      if (status === 'PAID') {
+        clearInterval(timer);
+
+        // Atomic claim — skips if webhook already credited it
+        const { rowCount } = await q(
+          `UPDATE cheat_sales SET status='success', credited_at=now()
+           WHERE cashfree_order_id=$1 AND credited_at IS NULL`,
+          [orderId],
+        );
+        if (!rowCount) return; // webhook beat us to it
+
+        const ch = await client.channels.fetch(channelId);
+        await ch.send({
+          embeds: [new EmbedBuilder()
+            .setColor(0x00C851)
+            .setTitle('✅ Payment Confirmed!')
+            .setDescription(`**${buyerName}** has successfully paid **₹${amount}**.\n\n> Please deliver the product now.`)
+            .addFields(
+              { name: '👤 Buyer',  value: `\`${buyerName}\``, inline: true },
+              { name: '💰 Amount', value: `**₹${amount}**`,   inline: true },
+              { name: '📋 Status', value: '✅ Paid',           inline: true },
+            )
+            .setTimestamp()
+          ],
+        });
+      } else if (status === 'EXPIRED') {
+        clearInterval(timer);
+        await q(`UPDATE cheat_sales SET status='failed' WHERE cashfree_order_id=$1 AND credited_at IS NULL`, [orderId]);
+      }
+    } catch (e) {
+      console.warn(`[/pay poll] ${orderId}:`, e.message);
+    }
+  }, POLL_INTERVAL_MS);
 }
