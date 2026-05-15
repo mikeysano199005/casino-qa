@@ -3,7 +3,7 @@ import {
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, requireActive, getPreset, getUserPreset, loadSession, saveSession, deleteSession } from '../repo.js';
+import { applyTx, requireActive, getPreset, getUserPreset, loadSession, saveSession, deleteSession, clearStuckSessions } from '../repo.js';
 import { newServerSeed, rngFloat } from '../util/fairness.js';
 import { toPaise, fmt } from '../util/money.js';
 import { logBetResult, broadcastBigWin } from '../admin/logs.js';
@@ -150,6 +150,9 @@ async function executeStartHand(i, amount) {
   let u;
   try { u = await requireActive(i.user.id, i.user.username); }
   catch { return i.editReply({ content: '🚫 Your account is suspended.' }); }
+
+  // Release any stuck sessions from other games (mines, etc.) so locked funds are freed
+  await clearStuckSessions(i.user.id).catch(() => {});
 
   // Abandon any existing session (refund orphaned stake)
   const existing = await getSession(i.user.id);
