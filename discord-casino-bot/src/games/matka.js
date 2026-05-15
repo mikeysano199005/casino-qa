@@ -261,19 +261,40 @@ async function tick(channel) {
   );
 
   const settledRoundId = settled.round.id;
+  let openFailed = false;
   try {
     await openRound();
+  } catch (e) {
+    openFailed = true;
+    console.error('[matka] openRound failed:', e.message);
   } finally {
     settling = false;
   }
+
+  if (openFailed) {
+    // Retry after 5 s — the loop must never die permanently
+    setTimeout(async () => {
+      try {
+        await openRound();
+        await renderPanel(channel);
+        scheduleNextTick(channel);
+      } catch (e2) { console.error('[matka] retry openRound failed:', e2.message); }
+    }, 5_000);
+    return;
+  }
+
   // Deliver paid VIP predictions to users who bet in the settled round
-  if (state?.predictedWinner !== null && state?.predictedWinner !== undefined) {
+  if (state?.predictedWinner != null) {
     deliverMatkaPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>
       console.warn('[matka vip delivery]', e.message)
     );
   }
-  await renderPanel(channel);
-  scheduleNextTick(channel); // schedule next settlement exactly at new endsAt
+  try {
+    await renderPanel(channel);
+  } catch (e) {
+    console.error('[matka] renderPanel failed:', e.message);
+  }
+  scheduleNextTick(channel); // always fires — loop never dies from a render error
 }
 
 // ─── How-to-play guide ────────────────────────────────────────────────

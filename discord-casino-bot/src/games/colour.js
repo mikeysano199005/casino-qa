@@ -193,12 +193,34 @@ async function tick(channel) {
 
   // 3. Open next round after result is posted
   const settledRoundId = settled.round.id;
-  await openRound();
+  let openFailed = false;
+  try {
+    await openRound();
+  } catch (e) {
+    openFailed = true;
+    console.error('[colour] openRound failed:', e.message);
+  }
+
+  if (openFailed) {
+    setTimeout(async () => {
+      try {
+        await openRound();
+        await renderPanel(channel);
+        scheduleNextTick(channel);
+      } catch (e2) { console.error('[colour] retry openRound failed:', e2.message); }
+    }, 5_000);
+    return;
+  }
+
   // Deliver paid VIP predictions to users who bet in the settled round
   deliverColourPredictions(channel.client, settledRoundId, state.predictedWinner, state.endsAt).catch(e =>
     console.warn('[colour vip delivery]', e.message)
   );
-  await renderPanel(channel);
+  try {
+    await renderPanel(channel);
+  } catch (e) {
+    console.error('[colour] renderPanel failed:', e.message);
+  }
   scheduleNextTick(channel);
 }
 

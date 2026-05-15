@@ -218,7 +218,13 @@ async function tick(channel) {
         await renderPanel(channel);  // update panel to show crashed state BEFORE result posts
         await settle(channel);       // DB work + result message
         state = null;
-        setTimeout(() => openRound(channel).catch(e => console.error('[crash openRound]', e)), 4000);
+        setTimeout(async () => {
+          try { await openRound(channel); }
+          catch (e) {
+            console.error('[crash] openRound failed, retrying in 5s:', e.message);
+            setTimeout(() => openRound(channel).catch(e2 => console.error('[crash] retry failed:', e2.message)), 5_000);
+          }
+        }, 4000);
         return;
       }
 
