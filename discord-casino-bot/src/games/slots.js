@@ -33,7 +33,8 @@ function pickSymbol(rng, biasIndex = -1) {
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎰 Slots')
-      .setDescription('3 reels, match all 3 to win.\n🍒5× 🍋8× 🔔12× ⭐25× 💎50× 7️⃣100× 🎰250× your stake')],
+      .setDescription('3 reels, match all 3 to win.\n🍒5× 🍋8× 🔔12× ⭐25× 💎50× 7️⃣100× 🎰250× your stake')
+      .addFields({ name: '👥 Bets today', value: String(Math.floor(Math.random() * 21) + 30), inline: true })],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('slots:spin').setLabel('🎰 Spin').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('slots:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),

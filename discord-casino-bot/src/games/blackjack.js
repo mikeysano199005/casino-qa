@@ -83,7 +83,8 @@ async function clearSession(userId) {
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🃏 Blackjack')
-      .setDescription('Beat the dealer without going over 21. Natural 21 pays 3:2.')],
+      .setDescription('Beat the dealer without going over 21. Natural 21 pays 3:2.')
+      .addFields({ name: '👥 Bets today', value: String(Math.floor(Math.random() * 21) + 30), inline: true })],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('bj:start').setLabel('🃏 New Hand').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('bj:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),

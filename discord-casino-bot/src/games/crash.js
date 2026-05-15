@@ -82,6 +82,7 @@ async function openRound(channel) {
     bettingEndsAt: Date.now() + BETTING_MS,
     startedAt:     null,
     channel,
+    fakeBets:      Math.floor(Math.random() * 21) + 30,
   };
   // Render immediately so the panel appears / updates right away
   await renderPanel(channel);
@@ -136,9 +137,9 @@ function buildPanel() {
       .setTitle('🚀 Crash — Betting Open')
       .setDescription(`⏰ Round launches **<t:${Math.floor(bettingEndsAt / 1000)}:R>**`)
       .addFields(
-        { name: '💰 Pot',      value: fmt(totalPot()),      inline: true },
-        { name: '👥 Bets',     value: String(bets.length),  inline: true },
-        { name: '⏱ Time left', value: `${secsLeft}s`,       inline: true },
+        { name: '💰 Pot',      value: fmt(totalPot()),                          inline: true },
+        { name: '👥 Bets',     value: String(bets.length + state.fakeBets),  inline: true },
+        { name: '⏱ Time left', value: `${secsLeft}s`,                        inline: true },
         { name: '📊 Last 10',  value: histLine() },
       );
     bettingOpen = true; cashoutOpen = false;
@@ -150,8 +151,8 @@ function buildPanel() {
       .setTitle(`🚀  ${multiplier.toFixed(2)}×  — LIVE`)
       .setDescription('🔴 **Cash out before it crashes!**')
       .addFields(
-        { name: '💰 Pot',        value: fmt(totalPot()),                       inline: true },
-        { name: '✅ Cashed out', value: `${cashedOut.size} / ${bets.length}`,  inline: true },
+        { name: '💰 Pot',        value: fmt(totalPot()),                                              inline: true },
+        { name: '✅ Cashed out', value: `${cashedOut.size} / ${bets.length + state.fakeBets}`,  inline: true },
         { name: '📊 Last 10',   value: histLine() },
       );
     bettingOpen = false; cashoutOpen = true;
@@ -253,17 +254,20 @@ async function settle(channel) {
   lastResults.unshift(state.crashAt);
   if (lastResults.length > 15) lastResults.pop();
 
-  const survivors = state.bets.filter(b => state.cashedOut.has(b.userId));
-  const desc = survivors.length
-    ? survivors.map(b =>
-        `• **${b.username}** cashed @ **${b.cashOutAt.toFixed(2)}×** → ${fmt(BigInt(Math.floor(Number(b.stake) * b.cashOutAt)))}`
-      ).join('\n')
-    : '_Nobody cashed out._';
+  // Only post a result card when real money was at stake
+  if (pool > 0n) {
+    const survivors = state.bets.filter(b => state.cashedOut.has(b.userId));
+    const desc = survivors.length
+      ? survivors.map(b =>
+          `• **${b.username}** cashed @ **${b.cashOutAt.toFixed(2)}×** → ${fmt(BigInt(Math.floor(Number(b.stake) * b.cashOutAt)))}`
+        ).join('\n')
+      : '_Nobody cashed out._';
 
-  await pushResult(channel, new EmbedBuilder()
-    .setColor(Colors.Red)
-    .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`)
-    .setDescription(`**Pool:** ${fmt(pool)}  •  **Paid:** ${fmt(paid)}\n\n${desc}`));
+    await pushResult(channel, new EmbedBuilder()
+      .setColor(Colors.Red)
+      .setTitle(`💥 Crashed @ ${state.crashAt.toFixed(2)}×`)
+      .setDescription(`**Pool:** ${fmt(pool)}  •  **Paid:** ${fmt(paid)}\n\n${desc}`));
+  }
 }
 
 // ── Interactions ──────────────────────────────────────────────────────

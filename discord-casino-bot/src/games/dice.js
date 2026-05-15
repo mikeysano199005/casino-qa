@@ -14,7 +14,8 @@ const lastBet = new Map(); // discordId -> { amount, side, target }
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('🎲 Dice')
-      .setDescription('Predict roll under/over. Higher chance = lower payout.')],
+      .setDescription('Predict roll under/over. Higher chance = lower payout.')
+      .addFields({ name: '👥 Bets today', value: String(Math.floor(Math.random() * 21) + 30), inline: true })],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('dice:play').setLabel('🎲 Roll').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('dice:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),

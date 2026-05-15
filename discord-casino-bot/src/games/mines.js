@@ -61,7 +61,8 @@ async function clearSession(userId) {
 export function postPanel(channel) {
   return channel.send({
     embeds: [new EmbedBuilder().setColor(Colors.Gold).setTitle('💣 Mines')
-      .setDescription('Pick safe tiles, cash out anytime. Hitting a mine = lose your stake.')],
+      .setDescription('Pick safe tiles, cash out anytime. Hitting a mine = lose your stake.')
+      .addFields({ name: '👥 Bets today', value: String(Math.floor(Math.random() * 21) + 30), inline: true })],
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('mines:start').setLabel('💣 New Game').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('mines:rules').setLabel('📋 Rules').setStyle(ButtonStyle.Secondary),

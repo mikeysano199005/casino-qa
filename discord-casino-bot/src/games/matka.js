@@ -105,6 +105,7 @@ async function openRound() {
     endsAt: Date.now() + ROUND_MS,
     panelMessageId: null,
     predictedWinner,
+    fakeBets: Math.floor(Math.random() * 21) + 30,
   };
 }
 
@@ -154,7 +155,7 @@ function buildEmbed() {
       { name: '🆔 Match ID',    value: `\`MK-${matchId}\``,         inline: true },
       { name: '⏰ Closes At',   value: `<t:${closeTs}:T>`,           inline: true },
       { name: '💰 Total Pool',  value: fmt(totalPool),               inline: true },
-      { name: '🎫 Bets',        value: String(state.bets.length),    inline: true },
+      { name: '🎫 Bets',        value: String(state.bets.length + state.fakeBets), inline: true },
       { name: '📊 Last 15',     value: lastResults.length ? lastResults.map(String).join('  ') : '—', inline: false },
       { name: '🔐 Seed (commit)', value: '`' + state.round.server_seed_hash.slice(0, 24) + '…`', inline: false },
     );

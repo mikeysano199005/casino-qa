@@ -93,6 +93,7 @@ async function openRound() {
     endsAt: Date.now() + ROUND_MS,
     panelMessageId: null,
     predictedWinner,
+    fakeBets: Math.floor(Math.random() * 21) + 30,
   };
 }
 
@@ -102,9 +103,10 @@ function buildEmbed() {
     .setTitle('🎨 Colour Prediction')
     .setDescription(`Round closes at **<t:${Math.floor(state.endsAt / 1000)}:T>**`)
     .addFields(
-      { name: '🟢 Green (2×)',  value: fmt(state.pool.green),  inline: true },
-      { name: '🔴 Red (2×)',    value: fmt(state.pool.red),    inline: true },
-      { name: '🟣 Violet (8×)', value: fmt(state.pool.violet), inline: true },
+      { name: '🟢 Green (2×)',  value: fmt(state.pool.green),                          inline: true },
+      { name: '🔴 Red (2×)',    value: fmt(state.pool.red),                            inline: true },
+      { name: '🟣 Violet (8×)', value: fmt(state.pool.violet),                         inline: true },
+      { name: '👥 Bets',        value: String(state.bets.length + state.fakeBets),     inline: true },
       { name: 'Last 15',
         value: lastResults.length
           ? lastResults.map(r => OPTIONS.find(o => o.key === r).color).join(' ')
