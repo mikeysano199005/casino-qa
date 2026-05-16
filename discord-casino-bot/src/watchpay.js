@@ -12,6 +12,15 @@ export function startWebhookServer(client) {
   app.use(express.urlencoded({ extended: true })); // WatchPay POSTs form-encoded data
   app.use(express.json());
 
+  // Log every incoming request so we can see what WatchPay sends
+  app.use((req, _res, next) => {
+    if (req.method !== 'GET' || req.path !== '/health') {
+      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+      console.log(`[http] ${req.method} ${req.path} from ${ip}`);
+    }
+    next();
+  });
+
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
   app.get('/payment-done', (_req, res) => {
@@ -26,9 +35,11 @@ export function startWebhookServer(client) {
 
   app.post('/watchpay/webhook', async (req, res) => {
     try {
-      // ── IP whitelist ───────────────────────────────────────────────────
       const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
               || req.socket.remoteAddress;
+      console.log('[watchpay] callback received from IP:', ip, '| body:', JSON.stringify(req.body));
+
+      // ── IP whitelist ───────────────────────────────────────────────────
       const skipIpCheck = process.env.WATCHPAY_SKIP_IP_CHECK === 'true';
       if (!skipIpCheck && ip !== WATCHPAY_IP) {
         console.warn('[watchpay] rejected callback from IP:', ip);
