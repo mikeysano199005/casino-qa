@@ -138,8 +138,10 @@ async function createDeposit(i) {
         .setDescription(`[Pay ₹${amount} via UPI](${payUrl})\n\nWallet credits automatically after payment.`)],
     });
   } catch (e) {
-    logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: e.message });
-    await i.editReply({ content: '⚠️ Could not create deposit — try again later.' });
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+    console.error('[createDeposit]', detail);
+    logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: detail });
+    await i.editReply({ content: `⚠️ Could not create deposit: \`${detail}\`` });
   }
 }
 
