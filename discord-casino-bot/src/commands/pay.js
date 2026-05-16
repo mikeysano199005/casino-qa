@@ -2,16 +2,13 @@ import {
   SlashCommandBuilder, ModalBuilder, ActionRowBuilder,
   TextInputBuilder, TextInputStyle, EmbedBuilder, ButtonBuilder, ButtonStyle,
 } from 'discord.js';
-import axios from 'axios';
 import { q } from '../db/index.js';
 import { toPaise } from '../util/money.js';
-
-const POLL_INTERVAL_MS = 5_000;
-const POLL_TIMEOUT_MS  = 30 * 60 * 1000; // 30 minutes
+import { createPayOrder } from '../util/watchpay.js';
 
 export const command = new SlashCommandBuilder()
   .setName('pay')
-  .setDescription('Create a Cashfree payment link for a buyer in this ticket');
+  .setDescription('Create a payment link for a buyer in this ticket');
 
 export async function handleCommand(i) {
   const adminIds = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim());
@@ -51,33 +48,16 @@ export async function handleModal(i) {
     return i.editReply({ content: '❌ Phone must be exactly 10 digits.' });
 
   const orderId = `sale_${Date.now()}`;
-  const env     = process.env.CASHFREE_ENV === 'prod' ? 'api.cashfree.com' : 'sandbox.cashfree.com';
   const base    = process.env.PUBLIC_BASE_URL;
-  const headers = {
-    'x-api-version':   '2023-08-01',
-    'x-client-id':     process.env.CASHFREE_APP_ID,
-    'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-    'Content-Type':    'application/json',
-  };
 
   try {
-    const res = await axios.post(`https://${env}/pg/orders`, {
-      order_id:       orderId,
-      order_amount:   amount,
-      order_currency: 'INR',
-      customer_details: {
-        customer_id:    `buyer_${Date.now()}`,
-        customer_name:  name,
-        customer_email: `buyer@ticket.local`,
-        customer_phone: phone,
-      },
-      order_meta: {
-        return_url: `${base}/payment-done`,
-        notify_url: `${base}/cashfree/webhook`,
-      },
-    }, { headers });
-
-    const link = `${base}/pay?session_id=${res.data.payment_session_id}`;
+    const payUrl = await createPayOrder({
+      orderId,
+      amountRupees: amount,
+      notifyUrl:    `${base}/watchpay/webhook`,
+      pageUrl:      `${base}/payment-done`,
+      goodsName:    `Sale - ${name}`.slice(0, 50),
+    });
 
     await q(
       `INSERT INTO cheat_sales(cashfree_order_id, buyer_name, buyer_phone, amount, ticket_channel_id)
@@ -102,72 +82,14 @@ export async function handleModal(i) {
         new ButtonBuilder()
           .setLabel(`Pay ₹${amount} Now`)
           .setStyle(ButtonStyle.Link)
-          .setURL(link)
+          .setURL(payUrl)
           .setEmoji('💳'),
       )],
     });
 
     await i.editReply({ content: '✅ Payment link posted in this channel.' });
-
-    // Start polling — fires every 5s, gives up after 30 min
-    startPolling(i.client, orderId, i.channelId, name, amount, env);
-
   } catch (e) {
-    console.error('[/pay]', e.response?.data || e.message);
-    await i.editReply({ content: '⚠️ Could not create payment link — check Cashfree credentials.' });
+    console.error('[/pay]', e.message);
+    await i.editReply({ content: '⚠️ Could not create payment link — try again later.' });
   }
-}
-
-function startPolling(client, orderId, channelId, buyerName, amount, env) {
-  const startedAt = Date.now();
-  const pollHeaders = {
-    'x-api-version':   '2023-08-01',
-    'x-client-id':     process.env.CASHFREE_APP_ID,
-    'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-  };
-
-  const timer = setInterval(async () => {
-    try {
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-        clearInterval(timer);
-        console.log(`[/pay poll] timeout for ${orderId}`);
-        return;
-      }
-
-      const { data } = await axios.get(`https://${env}/pg/orders/${orderId}`, { headers: pollHeaders });
-      const status = data.order_status;
-
-      if (status === 'PAID') {
-        clearInterval(timer);
-
-        // Atomic claim — skips if webhook already credited it
-        const { rowCount } = await q(
-          `UPDATE cheat_sales SET status='success', credited_at=now()
-           WHERE cashfree_order_id=$1 AND credited_at IS NULL`,
-          [orderId],
-        );
-        if (!rowCount) return; // webhook beat us to it
-
-        const ch = await client.channels.fetch(channelId);
-        await ch.send({
-          embeds: [new EmbedBuilder()
-            .setColor(0x00C851)
-            .setTitle('✅ Payment Confirmed!')
-            .setDescription(`**${buyerName}** has successfully paid **₹${amount}**.\n\n> Please deliver the product now.`)
-            .addFields(
-              { name: '👤 Buyer',  value: `\`${buyerName}\``, inline: true },
-              { name: '💰 Amount', value: `**₹${amount}**`,   inline: true },
-              { name: '📋 Status', value: '✅ Paid',           inline: true },
-            )
-            .setTimestamp()
-          ],
-        });
-      } else if (status === 'EXPIRED') {
-        clearInterval(timer);
-        await q(`UPDATE cheat_sales SET status='failed' WHERE cashfree_order_id=$1 AND credited_at IS NULL`, [orderId]);
-      }
-    } catch (e) {
-      console.warn(`[/pay poll] ${orderId}:`, e.message);
-    }
-  }, POLL_INTERVAL_MS);
 }

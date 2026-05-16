@@ -2,11 +2,11 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder,
   TextInputBuilder, TextInputStyle, EmbedBuilder, Colors,
 } from 'discord.js';
-import axios from 'axios';
 import { q } from '../db/index.js';
 import { applyTx, upsertUser, getWallet, logAudit } from '../repo.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logDeposit, logPaymentError, postWithdrawRequest } from '../admin/logs.js';
+import { logPaymentError, postWithdrawRequest } from '../admin/logs.js';
+import { createPayOrder } from '../util/watchpay.js';
 
 export function postPanel(channel) {
   return channel.send({
@@ -108,7 +108,6 @@ function bankModal(i) {
 }
 
 async function createDeposit(i) {
-  // Defer immediately — Cashfree API can take >3s and Discord kills unacknowledged interactions
   await i.deferReply({ ephemeral: true });
   const amount = Number(i.fields.getTextInputValue('amount'));
   const min = Number(process.env.MIN_DEPOSIT || 100);
@@ -117,44 +116,29 @@ async function createDeposit(i) {
     return i.editReply({ content: `Deposit must be between ₹${min} and ₹${max}.` });
 
   const u = await upsertUser(i.user.id, i.user.username);
-  const orderId = `cf_${u.id.slice(0, 8)}_${Date.now()}`;
-  const env = process.env.CASHFREE_ENV === 'prod' ? 'api.cashfree.com' : 'sandbox.cashfree.com';
-  const base = process.env.PUBLIC_BASE_URL;
-  const headers = {
-    'x-api-version': '2023-08-01',
-    'x-client-id':   process.env.CASHFREE_APP_ID,
-    'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-    'Content-Type': 'application/json',
-  };
+  const orderId = `wp_${u.id.slice(0, 8)}_${Date.now()}`;
+  const base    = process.env.PUBLIC_BASE_URL;
 
   try {
-    const res = await axios.post(`https://${env}/pg/orders`, {
-      order_id: orderId,
-      order_amount: amount,
-      order_currency: 'INR',
-      customer_details: {
-        customer_id: u.id,
-        customer_name: i.user.username || 'player',
-        customer_email: `${i.user.id}@discord.local`,
-        customer_phone: '9999999999',
-      },
-      order_meta: {
-        return_url: `${base}/payment-done`,
-        notify_url: `${base}/cashfree/webhook`,
-      },
-    }, { headers });
+    const payUrl = await createPayOrder({
+      orderId,
+      amountRupees: amount,
+      notifyUrl:    `${base}/watchpay/webhook`,
+      pageUrl:      `${base}/payment-done`,
+      goodsName:    'Casino Deposit',
+    });
 
-    const link = `${base}/pay?session_id=${res.data.payment_session_id}`;
     await q(
       `INSERT INTO deposits(user_id,cashfree_order_id,amount,status) VALUES($1,$2,$3,'created')`,
-      [u.id, orderId, toPaise(amount).toString()]
+      [u.id, orderId, toPaise(amount).toString()],
     );
+
     await i.editReply({
       embeds: [new EmbedBuilder().setColor(Colors.Green).setTitle('💳 Deposit')
-        .setDescription(`[Pay ₹${amount} via Cashfree](${link})\n\nWallet credits automatically after payment.`)]
+        .setDescription(`[Pay ₹${amount} via UPI](${payUrl})\n\nWallet credits automatically after payment.`)],
     });
   } catch (e) {
-    logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: e.response?.data || e.message });
+    logPaymentError(i.client, { stage: 'create_order', user: i.user.username, error: e.message });
     await i.editReply({ content: '⚠️ Could not create deposit — try again later.' });
   }
 }
