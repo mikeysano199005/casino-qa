@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, Partials, Events, REST, Routes } from 'discord.js';
-import * as payCmd from './commands/pay.js';
+import * as payCmd    from './commands/pay.js';
+import * as addbalCmd from './commands/addbal.js';
 import { q } from './db/index.js';
 import { startColourLoop } from './games/colour.js';
 import { startCrashLoop }  from './games/crash.js';
@@ -57,7 +58,8 @@ client.on(Events.InteractionCreate, async (i) => {
   try {
     // Slash commands
     if (i.isChatInputCommand()) {
-      if (i.commandName === 'pay') return payCmd.handleCommand(i);
+      if (i.commandName === 'pay')    return payCmd.handleCommand(i);
+      if (i.commandName === 'addbal') return addbalCmd.handleCommand(i);
       return;
     }
     // pay modal
@@ -92,7 +94,7 @@ client.once(Events.ClientReady, async () => {
     const rest = new REST().setToken(process.env.DISCORD_TOKEN);
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, process.env.MAIN_GUILD_ID),
-      { body: [payCmd.command.toJSON()] },
+      { body: [payCmd.command.toJSON(), addbalCmd.command.toJSON()] },
     );
     console.log('✅ /pay command registered');
   } catch (e) { console.warn('[slash register]', e.message); }
