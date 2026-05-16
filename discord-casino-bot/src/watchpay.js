@@ -51,14 +51,19 @@ export function startWebhookServer(client) {
       // ── Signature verification ────────────────────────────────────────
       const expected = buildSign(body, process.env.WATCHPAY_SECRET_KEY);
       if (body.sign !== expected) {
+        console.error('[watchpay] signature MISMATCH — received:', body.sign, '| expected:', expected);
         logPaymentError(client, { stage: 'watchpay_signature', error: { received: body.sign, expected } });
         return res.status(200).send('fail');
       }
 
-      const { tradeResult, mchOrderNo, oriAmount } = body;
-      if (tradeResult !== '1') return res.status(200).send('success');
+      // Handle both camelCase and snake_case field names
+      const tradeResult = body.tradeResult ?? body.trade_status ?? body.status;
+      const orderId     = body.mchOrderNo  ?? body.mch_order_no;
+      const oriAmount   = body.oriAmount   ?? body.trade_amount ?? body.amount;
 
-      const orderId = mchOrderNo;
+      console.log('[watchpay] tradeResult:', tradeResult, '| orderId:', orderId, '| amount:', oriAmount);
+
+      if (tradeResult !== '1') return res.status(200).send('success');
 
       // ── Cheat sales (prefix: sale_) ───────────────────────────────────
       if (String(orderId).startsWith('sale_')) {
@@ -110,7 +115,7 @@ export function startWebhookServer(client) {
       const { rowCount } = await q(
         `UPDATE deposits SET signature_verified=TRUE, raw_webhook=$2, status='success', credited_at=now()
          WHERE cashfree_order_id=$1 AND credited_at IS NULL`,
-        [orderId, body],
+        [orderId, JSON.stringify(body)],
       );
       if (!rowCount) return res.status(200).send('success'); // duplicate
 
