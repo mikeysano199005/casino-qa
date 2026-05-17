@@ -54,15 +54,34 @@ export const logRound = (client, game, id, info) => {
   safeSend(client, env.CH_ROUND_LOGS, payload);
 };
 
-export const logDeposit = (client, d) => {
-  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Green)
-    .setTitle('💰 Deposit credited')
+export const logDepositPending = (client, d) => {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Yellow)
+    .setTitle('🕐 Deposit Initiated')
     .addFields(
-      { name: 'Amount',     value: fmt(BigInt(d.amount)),                              inline: true },
-      { name: 'Username',   value: d.username   || '—',                               inline: true },
-      { name: 'Discord',    value: d.discord_id ? `<@${d.discord_id}>` : '—',         inline: true },
-      { name: 'Discord ID', value: d.discord_id || '—',                               inline: true },
-      { name: 'Order',      value: `\`${d.order_id}\``,                               inline: false },
+      { name: '📋 Status',     value: '⏳ **PENDING**',                                 inline: true },
+      { name: '💰 Amount',     value: fmt(BigInt(d.amount)),                            inline: true },
+      { name: '🕑 Time',       value: `<t:${now}:F>`,                                  inline: true },
+      { name: '👤 Username',   value: d.username   || '—',                             inline: true },
+      { name: '🆔 Discord ID', value: d.discord_id || '—',                             inline: true },
+      { name: '🏷️ Mention',    value: d.discord_id ? `<@${d.discord_id}>` : '—',      inline: true },
+      { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
+    )] };
+  safeSend(client, env.CH_DEPOSIT_LOGS, payload);
+};
+
+export const logDeposit = (client, d) => {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { embeds: [new EmbedBuilder().setColor(Colors.Green)
+    .setTitle('✅ Deposit Successful')
+    .addFields(
+      { name: '📋 Status',     value: '✅ **CREDITED**',                                inline: true },
+      { name: '💰 Amount',     value: fmt(BigInt(d.amount)),                            inline: true },
+      { name: '🕑 Time',       value: `<t:${now}:F>`,                                  inline: true },
+      { name: '👤 Username',   value: d.username   || '—',                             inline: true },
+      { name: '🆔 Discord ID', value: d.discord_id || '—',                             inline: true },
+      { name: '🏷️ Mention',    value: d.discord_id ? `<@${d.discord_id}>` : '—',      inline: true },
+      { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
     )] };
   safeSend(client, env.CH_DEPOSIT_LOGS, payload);
 };

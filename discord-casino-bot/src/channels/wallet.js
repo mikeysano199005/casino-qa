@@ -5,7 +5,7 @@ import {
 import { q } from '../db/index.js';
 import { applyTx, upsertUser, getWallet, logAudit } from '../repo.js';
 import { toPaise, fmt } from '../util/money.js';
-import { logPaymentError, postWithdrawRequest } from '../admin/logs.js';
+import { logPaymentError, logDepositPending, postWithdrawRequest } from '../admin/logs.js';
 import { createPayOrder } from '../util/watchpay.js';
 
 export function postPanel(channel) {
@@ -132,6 +132,11 @@ async function createDeposit(i) {
       `INSERT INTO deposits(user_id,cashfree_order_id,amount,status) VALUES($1,$2,$3,'created')`,
       [u.id, orderId, toPaise(amount).toString()],
     );
+
+    logDepositPending(i.client, {
+      amount: toPaise(amount).toString(), order_id: orderId,
+      username: i.user.username, discord_id: i.user.id,
+    });
 
     await i.editReply({
       embeds: [new EmbedBuilder().setColor(Colors.Green).setTitle('💳 Deposit')
