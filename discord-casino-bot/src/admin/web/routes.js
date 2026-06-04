@@ -253,19 +253,27 @@ export function adminApiRouter(client) {
   });
 
   // ─── Discord channel list (for the channel-picker dropdowns) ──────────
+  // Lists text channels across EVERY server the bot is in (not just the env
+  // guild IDs), so the picker works regardless of which server is configured.
   r.get('/discord/channels', (_req, res) => {
     const TEXT_TYPES = new Set([0, 5]); // GuildText, GuildAnnouncement
     const out = [];
-    const collect = (guildId, tag) => {
-      const g = guildId && client.guilds.cache.get(guildId);
-      if (!g) return;
+    for (const g of client.guilds.cache.values())
       for (const ch of g.channels.cache.values())
-        if (TEXT_TYPES.has(ch.type)) out.push({ id: ch.id, name: ch.name, guild: tag });
-    };
-    collect(process.env.MAIN_GUILD_ID, 'main');
-    collect(process.env.ADMIN_GUILD_ID, 'admin');
+        if (TEXT_TYPES.has(ch.type)) out.push({ id: ch.id, name: ch.name, guild: g.name });
     out.sort((a, b) => a.guild.localeCompare(b.guild) || a.name.localeCompare(b.name));
     res.json(out);
+  });
+
+  // Diagnostic: which servers the bot is actually in, and how many channels it sees.
+  r.get('/discord/guilds', (_req, res) => {
+    const TEXT_TYPES = new Set([0, 5]);
+    res.json([...client.guilds.cache.values()].map(g => ({
+      id: g.id, name: g.name, members: g.memberCount,
+      textChannels: [...g.channels.cache.values()].filter(c => TEXT_TYPES.has(c.type)).length,
+      isMainEnv: g.id === process.env.MAIN_GUILD_ID,
+      isAdminEnv: g.id === process.env.ADMIN_GUILD_ID,
+    })));
   });
 
   // ─── Announcements ────────────────────────────────────────────────────

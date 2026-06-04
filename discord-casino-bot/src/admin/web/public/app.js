@@ -356,7 +356,15 @@ async function openUser(discordId) {
 
 // ── Channels & Config ─────────────────────────────────────────────────────────
 ROUTES.channels = async () => {
-  const [{ channels, config }, discord] = await Promise.all([api('/settings'), api('/discord/channels').catch(() => [])]);
+  const [{ channels, config }, discord, guilds] = await Promise.all([
+    api('/settings'),
+    api('/discord/channels').catch(() => []),
+    api('/discord/guilds').catch(() => []),
+  ]);
+  const banner = discord.length ? '' : `<div class="card pad" style="border-left:4px solid var(--amber);margin-bottom:14px">
+    <b>⚠️ The bot can’t see any channels.</b>
+    <div class="muted" style="margin-top:6px">It’s in ${guilds.length} server(s): ${guilds.map(g => `${esc(g.name)} <span class="muted">(${g.textChannels} channels visible, ${g.members} members)</span>`).join(', ') || 'none'}.
+    If channel counts are 0, the bot’s role is missing the <b>View Channel</b> permission. Fix it in your Discord server: Server Settings → Roles → the bot’s role → enable <b>View Channels</b> + <b>Send Messages</b> (or re-invite the bot with those permissions). Until then you can paste channel IDs manually below.</div></div>`;
   const applyTag = {
     live: '<span class="pill tag-live">applies instantly</span>',
     panel: '<span class="pill tag-repost">needs “Re-post panels”</span>',
@@ -383,6 +391,7 @@ ROUTES.channels = async () => {
     <div class="muted" style="font-size:11px;text-align:right">${d.source === 'db' ? '✅ custom' : 'default'}</div></div>`;
 
   view.innerHTML = `${header('Channels &amp; Config', 'Pick which Discord channel each feature posts to, and tune the money limits. Pick from the dropdown — no need to copy IDs.')}
+    ${banner}
     <div class="toolbar">
       <button class="btn btn-primary" id="save">💾 Save changes</button>
       <button class="btn btn-ghost" id="resync">🔁 Re-post panels</button>
