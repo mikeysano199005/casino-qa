@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { upsertUser, getWallet } from '../repo.js';
 import { startEngine, addSubscriber, placeBet, cashOut, subscriberCount } from './crashEngine.js';
 import { mountAccountApi } from './accountApi.js';
+import { mountGamesApi } from './gamesApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -98,6 +99,8 @@ export function mountPlay(app, client) {
 
   // Wallet (deposit/withdraw) + account (profile/history/daily/redeem/referral).
   mountAccountApi(app, client, requirePlay);
+  // Instant games: dice + slots.
+  mountGamesApi(app, client, requirePlay);
 
   console.log('▶ web aviator mounted at /play');
 }

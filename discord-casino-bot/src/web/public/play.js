@@ -463,6 +463,100 @@ $('#btnDeposit').onclick = () => openCashier('deposit');
 $('#btnWithdraw').onclick = () => openCashier('withdraw');
 $('#btnAccount').onclick = openAccount;
 
+// ── Games lobby + Dice + Slots ──────────────────────────────────────────────────
+function openLobby() {
+  openSheet('Games', `<div class="lobby-grid">
+    <div class="lobby-card" data-g="aviator"><div class="lobby-emoji">✈</div><div class="lobby-name">Aviator</div></div>
+    <div class="lobby-card" data-g="dice"><div class="lobby-emoji">🎲</div><div class="lobby-name">Dice</div></div>
+    <div class="lobby-card" data-g="slots"><div class="lobby-emoji">🎰</div><div class="lobby-name">Slots</div></div>
+  </div>`);
+  sheet.querySelectorAll('[data-g]').forEach(c => c.onclick = () => {
+    const g = c.dataset.g;
+    if (g === 'aviator') return closeSheet();
+    if (g === 'dice') return openDice();
+    if (g === 'slots') return openSlots();
+  });
+}
+
+function openDice() {
+  openSheet('🎲 Dice', `
+    <div class="dice-result" id="diceRes">—</div>
+    <div class="dice-track"><div class="dice-fill" id="diceFill"></div><div class="dice-marker" id="diceMark"></div></div>
+    <div class="stat-row"><span class="k">Win chance</span><span id="diceChance">49%</span></div>
+    <div class="stat-row"><span class="k">Payout</span><span id="dicePay">1.98×</span></div>
+    <div class="seg" id="diceSide"><button data-s="UNDER" class="active">Roll Under</button><button data-s="OVER">Roll Over</button></div>
+    <div class="fld"><label>Target: <span id="diceTval">50</span></label><input id="diceTarget" type="range" min="2" max="98" value="50" style="width:100%" /></div>
+    <div class="fld"><label>Bet (₹)</label><input id="diceAmt" type="number" value="10" /></div>
+    <div class="chips">${[10, 20, 50, 100].map(v => `<button data-da="${v}">${v}</button>`).join('')}</div>
+    <button class="big-btn" id="diceRoll">Roll</button>`);
+
+  let side = 'UNDER';
+  const upd = () => {
+    const t = Number(document.getElementById('diceTarget').value);
+    document.getElementById('diceTval').textContent = t;
+    const chance = side === 'UNDER' ? (t - 1) : (99 - t);
+    document.getElementById('diceChance').textContent = chance + '%';
+    document.getElementById('dicePay').textContent = (0.97 / (chance / 100)).toFixed(2) + '×';
+    const fill = document.getElementById('diceFill');
+    fill.style.background = side === 'UNDER' ? '#2dc44e' : '#e84242';
+    fill.style.left = side === 'UNDER' ? '0' : t + '%';
+    fill.style.right = side === 'UNDER' ? (100 - t) + '%' : '0';
+    fill.style.width = ''; // use left/right
+  };
+  document.getElementById('diceTarget').oninput = upd;
+  sheet.querySelectorAll('#diceSide button').forEach(b => b.onclick = () => { side = b.dataset.s; sheet.querySelectorAll('#diceSide button').forEach(x => x.classList.toggle('active', x === b)); upd(); });
+  sheet.querySelectorAll('[data-da]').forEach(b => b.onclick = () => { document.getElementById('diceAmt').value = b.dataset.da; });
+  upd();
+
+  document.getElementById('diceRoll').onclick = async () => {
+    const amount = Number(document.getElementById('diceAmt').value);
+    const target = Number(document.getElementById('diceTarget').value);
+    try {
+      const d = await papi('/api/play/dice', { method: 'POST', body: { amount, side, target } });
+      setBalance(d.balance);
+      const res = document.getElementById('diceRes');
+      res.textContent = d.roll;
+      res.className = 'dice-result ' + (d.win ? 'win-flash' : 'lose-flash');
+      document.getElementById('diceMark').style.left = d.roll + '%';
+      toast(d.win ? `🎉 Win ${fmt(d.payout)} (${d.roll})` : `Lost — rolled ${d.roll}`);
+    } catch (e) { toast(diceErr(e)); }
+  };
+}
+const diceErr = (e) => ({ insufficient: '💸 Insufficient balance', maintenance: '🚧 Games paused', bet_range: `Bet ₹${e.data?.min}–₹${e.data?.max}`, bad_target: 'Pick target 2–98', suspended: '🚫 Account suspended' }[e.data?.error] || 'Failed');
+
+function openSlots() {
+  openSheet('🎰 Slots', `
+    <div class="reels"><div class="reel" id="r0">🎰</div><div class="reel" id="r1">🎰</div><div class="reel" id="r2">🎰</div></div>
+    <div class="dice-result" id="slotRes" style="font-size:18px">Spin to play</div>
+    <div class="fld"><label>Bet (₹)</label><input id="slotAmt" type="number" value="10" /></div>
+    <div class="chips">${[10, 20, 50, 100].map(v => `<button data-sa="${v}">${v}</button>`).join('')}</div>
+    <button class="big-btn alt" id="slotSpin">Spin</button>
+    <div class="note" id="slotPay"></div>`);
+  papi('/api/play/slots/symbols').then(syms => {
+    document.getElementById('slotPay').textContent = 'Match 3: ' + syms.map(s => `${s.symbol}×${s.pay}`).join('  ');
+  }).catch(() => {});
+  sheet.querySelectorAll('[data-sa]').forEach(b => b.onclick = () => { document.getElementById('slotAmt').value = b.dataset.sa; });
+  document.getElementById('slotSpin').onclick = async () => {
+    const amount = Number(document.getElementById('slotAmt').value);
+    const reels = ['r0', 'r1', 'r2'].map(id => document.getElementById(id));
+    const spin = setInterval(() => reels.forEach(r => r.textContent = ['🍒', '🍋', '🔔', '⭐', '💎', '7️⃣', '🎰'][Math.floor(Math.random() * 7)]), 80);
+    try {
+      const d = await papi('/api/play/slots', { method: 'POST', body: { amount } });
+      setTimeout(() => {
+        clearInterval(spin);
+        reels.forEach((r, i) => r.textContent = d.reels[i]);
+        setBalance(d.balance);
+        const res = document.getElementById('slotRes');
+        res.textContent = d.win ? `🎉 WIN ${fmt(d.payout)} (${d.mult}×)` : 'No match';
+        res.className = 'dice-result ' + (d.win ? 'win-flash' : 'lose-flash');
+        res.style.fontSize = '18px';
+      }, 600);
+    } catch (e) { clearInterval(spin); toast(diceErr(e)); }
+  };
+}
+
+$('#btnGames').onclick = openLobby;
+
 // ── boot ──────────────────────────────────────────────────────────────────────
 resizeCanvas();
 refreshBalance();
