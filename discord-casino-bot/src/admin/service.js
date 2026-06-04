@@ -229,3 +229,12 @@ export async function deactivatePromo({ promoId, adminId }) {
   await logAudit(adminId, 'promo_deactivated', promoId, null, {});
   return { ok: true };
 }
+
+// ─── Admin notes (web user profile) ───────────────────────────────────────
+
+export async function setUserNotes({ userId, notes, adminId }) {
+  const clean = (notes ?? '').toString().slice(0, 4000);
+  await q(`UPDATE users SET admin_notes=$1 WHERE id=$2`, [clean, userId]);
+  await logAudit(adminId, 'admin_set_notes', userId, null, { len: clean.length });
+  return { ok: true };
+}

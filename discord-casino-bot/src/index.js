@@ -69,6 +69,14 @@ client.on(Events.InteractionCreate, async (i) => {
 
     if (!(i.isButton() || i.isModalSubmit())) return;
     const ns = i.customId.split(':')[0];
+
+    // Maintenance mode: pause games for non-admins (wallet/account/support stay open).
+    const GAME_NS = new Set(['colour', 'crash', 'matka', 'ipl', 'mines', 'dice', 'bj', 'slots']);
+    const isAdminUser = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).includes(i.user.id);
+    if (cfg('MAINTENANCE_MODE') === 'true' && GAME_NS.has(ns) && !isAdminUser) {
+      return i.reply({ ephemeral: true, content: '🚧 Games are paused for maintenance — your balance is safe. Please check back soon.' });
+    }
+
     const fn = HANDLERS[ns];
     if (!fn) return;
     await fn(i);

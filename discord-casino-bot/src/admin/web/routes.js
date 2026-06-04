@@ -10,6 +10,8 @@ import {
 } from '../../config.js';
 import { postStaticPanels } from '../../panels.js';
 import { togglePrediction, getPredictionState } from '../../games/matka.js';
+import { slotsForced, SYMBOLS } from '../../games/slots.js';
+import { logAuditMsg } from '../logs.js';
 
 const toPaise = (rupees) => BigInt(Math.round(Number(rupees) * 100));
 
@@ -104,7 +106,7 @@ export function adminApiRouter(client) {
     const big = (v) => String(v ?? 0);
     res.json({
       id: u.id, discord_id: u.discord_id, username: u.username, status: u.status,
-      vip_tier: u.vip_tier, user_preset: u.user_preset, created_at: u.created_at,
+      vip_tier: u.vip_tier, user_preset: u.user_preset, admin_notes: u.admin_notes || '', created_at: u.created_at,
       withdraw_cooldown_until: u.withdraw_cooldown_until, withdraw_cooldown_hours: u.withdraw_cooldown_hours,
       available: big(u.available), locked: big(u.locked), bonus_balance: big(u.bonus_balance),
       wager_pending: big(u.wager_pending), total_deposited: big(u.total_deposited),
@@ -236,6 +238,127 @@ export function adminApiRouter(client) {
   });
   r.delete('/promos/:id', async (req, res) => {
     res.json(await svc.deactivatePromo({ promoId: req.params.id, adminId: actor(req) }));
+  });
+
+  // ─── Discord channel list (for the channel-picker dropdowns) ──────────
+  r.get('/discord/channels', (_req, res) => {
+    const TEXT_TYPES = new Set([0, 5]); // GuildText, GuildAnnouncement
+    const out = [];
+    const collect = (guildId, tag) => {
+      const g = guildId && client.guilds.cache.get(guildId);
+      if (!g) return;
+      for (const ch of g.channels.cache.values())
+        if (TEXT_TYPES.has(ch.type)) out.push({ id: ch.id, name: ch.name, guild: tag });
+    };
+    collect(process.env.MAIN_GUILD_ID, 'main');
+    collect(process.env.ADMIN_GUILD_ID, 'admin');
+    out.sort((a, b) => a.guild.localeCompare(b.guild) || a.name.localeCompare(b.name));
+    res.json(out);
+  });
+
+  // ─── Announcements ────────────────────────────────────────────────────
+  r.post('/announce', async (req, res) => {
+    const target = (req.body?.target || '').toString();
+    const message = (req.body?.message || '').toString().trim();
+    if (!message) return res.status(400).json({ error: 'empty_message' });
+
+    if (target === 'all-dm') {
+      const { rows } = await q(`SELECT discord_id FROM users WHERE discord_id IS NOT NULL`);
+      res.json({ ok: true, queued: rows.length }); // respond immediately
+      let sent = 0;
+      for (const u of rows) {
+        try { const du = await client.users.fetch(u.discord_id); await du.send(message); sent++; }
+        catch {}
+        await new Promise(r2 => setTimeout(r2, 50)); // ~20/sec throttle
+      }
+      logAuditMsg(client, `📣 Broadcast DM by <@${actor(req)}> reached ${sent}/${rows.length} users`);
+      return;
+    }
+
+    try {
+      const ch = await client.channels.fetch(target);
+      await ch.send(message);
+      logAuditMsg(client, `📣 Announcement posted to <#${target}> by <@${actor(req)}>`);
+      res.json({ ok: true });
+    } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+  });
+
+  // ─── Analytics (charts) ───────────────────────────────────────────────
+  r.get('/analytics', async (req, res) => {
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
+    const span = `${days} days`;
+    const [money, ggr, users, top, wins] = await Promise.all([
+      q(`SELECT to_char(date_trunc('day', created_at),'YYYY-MM-DD') d,
+            COALESCE(SUM(CASE WHEN type='deposit' THEN amount END),0) dep,
+            COALESCE(SUM(CASE WHEN type='withdraw' THEN -amount END),0) wd
+         FROM transactions WHERE created_at > now() - $1::interval GROUP BY 1 ORDER BY 1`, [span]),
+      q(`SELECT to_char(date_trunc('day', settled_at),'YYYY-MM-DD') d,
+            COALESCE(SUM(stake::bigint - payout::bigint),0) ggr
+         FROM bets WHERE settled_at > now() - $1::interval GROUP BY 1 ORDER BY 1`, [span]),
+      q(`SELECT to_char(date_trunc('day', created_at),'YYYY-MM-DD') d, COUNT(*) n
+         FROM users WHERE created_at > now() - $1::interval GROUP BY 1 ORDER BY 1`, [span]),
+      q(`SELECT u.username, u.discord_id, w.total_wagered
+         FROM wallets w JOIN users u ON u.id=w.user_id ORDER BY w.total_wagered DESC LIMIT 10`),
+      q(`SELECT u.username, b.game, (b.payout::bigint - b.stake::bigint) net, b.settled_at
+         FROM bets b JOIN users u ON u.id=b.user_id WHERE b.result='win' ORDER BY net DESC LIMIT 10`),
+    ]);
+    res.json({
+      money: money.rows.map(r2 => ({ d: r2.d, dep: String(r2.dep), wd: String(r2.wd) })),
+      ggr: ggr.rows.map(r2 => ({ d: r2.d, ggr: String(r2.ggr) })),
+      newUsers: users.rows.map(r2 => ({ d: r2.d, n: Number(r2.n) })),
+      topPlayers: top.rows.map(r2 => ({ ...r2, total_wagered: String(r2.total_wagered) })),
+      biggestWins: wins.rows.map(r2 => ({ ...r2, net: String(r2.net) })),
+    });
+  });
+
+  // ─── Maintenance mode ─────────────────────────────────────────────────
+  r.post('/maintenance/toggle', async (req, res) => {
+    const next = cfg('MAINTENANCE_MODE') === 'true' ? 'false' : 'true';
+    await setSetting('MAINTENANCE_MODE', next, actor(req));
+    logAuditMsg(client, `🚧 Maintenance mode **${next === 'true' ? 'ON' : 'OFF'}** by <@${actor(req)}>`);
+    res.json({ ok: true, enabled: next === 'true' });
+  });
+  r.get('/maintenance', (_req, res) => res.json({ enabled: cfg('MAINTENANCE_MODE') === 'true' }));
+
+  // ─── Game outcome control (slots forced map, in-memory) ───────────────
+  r.get('/slots-overrides', (_req, res) => {
+    res.json([...slotsForced.entries()].map(([discordId, v]) =>
+      v.type === 'symbol'
+        ? { discordId, mode: 'symbol', symbol: v.symbol.s, pay: v.symbol.pay }
+        : { discordId, mode: v.type, remaining: v.remaining }));
+  });
+  r.post('/slots-overrides', (req, res) => {
+    const { discordId, mode, count, symbolIndex } = req.body || {};
+    if (!discordId) return res.status(400).json({ error: 'missing_user' });
+    if (mode === 'symbol') {
+      const sym = SYMBOLS[Number(symbolIndex)];
+      if (!sym) return res.status(400).json({ error: 'invalid_symbol' });
+      slotsForced.set(String(discordId), { type: 'symbol', symbol: sym });
+    } else if (mode === 'win' || mode === 'lose') {
+      const c = Math.min(20, Math.max(1, Math.floor(Number(count) || 1)));
+      slotsForced.set(String(discordId), { type: mode, remaining: c });
+    } else {
+      return res.status(400).json({ error: 'invalid_mode' });
+    }
+    logAuditMsg(client, `🎯 Slots override for <@${discordId}> set to **${mode}** by <@${actor(req)}>`);
+    res.json({ ok: true });
+  });
+  r.delete('/slots-overrides/:discordId', (req, res) => {
+    slotsForced.delete(req.params.discordId);
+    logAuditMsg(client, `🧹 Slots override cleared for <@${req.params.discordId}> by <@${actor(req)}>`);
+    res.json({ ok: true });
+  });
+  r.get('/symbols', (_req, res) => res.json(SYMBOLS.map((s, i) => ({ index: i, symbol: s.s, pay: s.pay }))));
+
+  // ─── User notes + money timeline (richer profiles) ────────────────────
+  r.post('/users/:userId/notes', async (req, res) => {
+    res.json(await svc.setUserNotes({ userId: req.params.userId, notes: req.body?.notes, adminId: actor(req) }));
+  });
+  r.get('/users/:userId/timeline', async (req, res) => {
+    const { rows } = await q(
+      `SELECT id, type, amount, balance_after, status, created_at
+       FROM transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.params.userId]);
+    res.json(rows.map(t => ({ ...t, amount: String(t.amount), balance_after: String(t.balance_after ?? 0) })));
   });
 
   return r;
