@@ -2,5 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 5
+# "always" so the bot comes back after an intentional restart from the admin
+# panel (which exits the process). "on_failure" would leave it down on a clean exit.
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
