@@ -268,12 +268,13 @@ export function adminApiRouter(client) {
   // Diagnostic: which servers the bot is actually in, and how many channels it sees.
   r.get('/discord/guilds', (_req, res) => {
     const TEXT_TYPES = new Set([0, 5]);
-    res.json([...client.guilds.cache.values()].map(g => ({
-      id: g.id, name: g.name, members: g.memberCount,
-      textChannels: [...g.channels.cache.values()].filter(c => TEXT_TYPES.has(c.type)).length,
-      isMainEnv: g.id === process.env.MAIN_GUILD_ID,
-      isAdminEnv: g.id === process.env.ADMIN_GUILD_ID,
-    })));
+    res.json({
+      bot: client.user?.tag || null,
+      guilds: [...client.guilds.cache.values()].map(g => ({
+        id: g.id, name: g.name, members: g.memberCount,
+        textChannels: [...g.channels.cache.values()].filter(c => TEXT_TYPES.has(c.type)).length,
+      })),
+    });
   });
 
   // ─── Announcements ────────────────────────────────────────────────────

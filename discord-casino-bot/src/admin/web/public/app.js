@@ -372,15 +372,21 @@ async function openUser(discordId) {
 
 // ── Channels & Config ─────────────────────────────────────────────────────────
 ROUTES.channels = async () => {
-  const [{ channels, config }, discord, guilds] = await Promise.all([
+  const [{ channels, config }, discord, guildsResp] = await Promise.all([
     api('/settings'),
     api('/discord/channels').catch(() => []),
-    api('/discord/guilds').catch(() => []),
+    api('/discord/guilds').catch(() => ({ bot: null, guilds: [] })),
   ]);
-  const banner = discord.length ? '' : `<div class="card pad" style="border-left:4px solid var(--amber);margin-bottom:14px">
-    <b>⚠️ The bot can’t see any channels.</b>
-    <div class="muted" style="margin-top:6px">It’s in ${guilds.length} server(s): ${guilds.map(g => `${esc(g.name)} <span class="muted">(${g.textChannels} channels visible, ${g.members} members)</span>`).join(', ') || 'none'}.
-    If channel counts are 0, the bot’s role is missing the <b>View Channel</b> permission. Fix it in your Discord server: Server Settings → Roles → the bot’s role → enable <b>View Channels</b> + <b>Send Messages</b> (or re-invite the bot with those permissions). Until then you can paste channel IDs manually below.</div></div>`;
+  const guilds = guildsResp.guilds || [];
+  const botName = guildsResp.bot || '';
+  const guildList = guilds.length
+    ? guilds.map(g => `<b>${esc(g.name)}</b> <span class="muted">(${g.textChannels} channels, ${g.members} members)</span>`).join(' • ')
+    : '<b style="color:var(--red)">no servers at all</b>';
+  const banner = `<div class="card pad" style="border-left:4px solid ${discord.length ? 'var(--primary)' : 'var(--amber)'};margin-bottom:14px">
+    <div>🤖 The bot${botName ? ` <b>${esc(botName)}</b>` : ''} is currently in: ${guildList}</div>
+    ${discord.length
+      ? '<div class="muted" style="margin-top:6px">Open any dropdown to pick a channel from these servers. A row that says <b>“bot can’t see this”</b> means its saved channel is in a server the bot isn’t in — just re-pick it from the dropdown, then <b>Save</b>.</div>'
+      : '<div class="muted" style="margin-top:6px">⚠️ The bot can’t see any channels here. Either it’s not in your server, or its role lacks <b>View Channel</b>. Invite the bot to your server and give its role <b>View Channels</b> + <b>Send Messages</b>.</div>'}</div>`;
   const applyTag = {
     live: '<span class="pill tag-live">applies instantly</span>',
     panel: '<span class="pill tag-repost">needs “Re-post panels”</span>',
