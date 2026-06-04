@@ -349,6 +349,120 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
 });
 
+// ── Cashier + Account sheet ─────────────────────────────────────────────────────
+const sheet = $('#sheet');
+function closeSheet() { sheet.classList.add('hidden'); sheet.innerHTML = ''; }
+function openSheet(title, body) {
+  sheet.innerHTML = `<div class="sheet-panel"><div class="sheet-head"><div class="sheet-title">${title}</div><button class="sheet-close" data-x>×</button></div><div id="sheetBody">${body}</div></div>`;
+  sheet.classList.remove('hidden');
+  sheet.onclick = (e) => { if (e.target === sheet) closeSheet(); };
+  sheet.querySelector('[data-x]').onclick = closeSheet;
+}
+async function papi(path, opts = {}) {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.error || 'failed'), { data: d });
+  return d;
+}
+
+function openCashier(tab) {
+  openSheet('Cashier', `
+    <div class="seg"><button data-t="deposit" class="${tab !== 'withdraw' ? 'active' : ''}">Deposit</button><button data-t="withdraw" class="${tab === 'withdraw' ? 'active' : ''}">Withdraw</button></div>
+    <div id="cashBody"></div>`);
+  const render = (t) => {
+    sheet.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+    document.getElementById('cashBody').innerHTML = t === 'deposit' ? depositForm() : withdrawForm();
+    t === 'deposit' ? wireDeposit() : wireWithdraw();
+  };
+  sheet.querySelectorAll('.seg button').forEach(b => b.onclick = () => render(b.dataset.t));
+  render(tab === 'withdraw' ? 'withdraw' : 'deposit');
+}
+function depositForm() {
+  return `<div class="note">Add money via UPI. Your wallet is credited automatically after payment.</div>
+    <div class="fld"><label>Amount (₹)</label><input id="depAmt" type="number" value="200" /></div>
+    <div class="chips">${[100, 200, 500, 1000].map(v => `<button data-d="${v}">${v}</button>`).join('')}</div>
+    <button class="big-btn" id="depGo">Pay via UPI</button>`;
+}
+function wireDeposit() {
+  sheet.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { document.getElementById('depAmt').value = b.dataset.d; });
+  document.getElementById('depGo').onclick = async () => {
+    const amount = Number(document.getElementById('depAmt').value);
+    try { const d = await papi('/api/play/deposit', { method: 'POST', body: { amount } }); toast('Opening payment…'); window.open(d.payUrl, '_blank'); }
+    catch (e) { toast(e.data?.min ? `Deposit ₹${e.data.min}–₹${e.data.max}` : 'Deposit failed'); }
+  };
+}
+function withdrawForm() {
+  return `<div class="note">Requests are reviewed before payout. Bonus funds need wagering first.</div>
+    <div class="seg" id="wm"><button data-m="upi" class="active">UPI</button><button data-m="bank">Bank</button></div>
+    <div class="fld"><label>Amount (₹)</label><input id="wAmt" type="number" value="500" /></div>
+    <div id="wFields"></div>
+    <button class="big-btn alt" id="wGo">Request withdrawal</button>`;
+}
+function wireWithdraw() {
+  let method = 'upi';
+  const fields = () => {
+    document.getElementById('wFields').innerHTML = method === 'upi'
+      ? `<div class="fld"><label>UPI ID</label><input id="wUpi" placeholder="name@bank" /></div>`
+      : `<div class="fld"><label>Account holder name</label><input id="wName" /></div>
+         <div class="fld"><label>Account number</label><input id="wAcc" /></div>
+         <div class="fld"><label>IFSC</label><input id="wIfsc" /></div>
+         <div class="fld"><label>Phone</label><input id="wPhone" /></div>`;
+  };
+  sheet.querySelectorAll('#wm button').forEach(b => b.onclick = () => {
+    method = b.dataset.m; sheet.querySelectorAll('#wm button').forEach(x => x.classList.toggle('active', x === b)); fields();
+  });
+  fields();
+  document.getElementById('wGo').onclick = async () => {
+    const amount = Number(document.getElementById('wAmt').value);
+    const body = { amount, method };
+    if (method === 'upi') body.upi = document.getElementById('wUpi').value.trim();
+    else body.bank = { name: document.getElementById('wName').value.trim(), acc: document.getElementById('wAcc').value.trim(), ifsc: document.getElementById('wIfsc').value.trim(), phone: document.getElementById('wPhone').value.trim() };
+    try { await papi('/api/play/withdraw', { method: 'POST', body }); toast('✅ Withdrawal requested'); closeSheet(); refreshBalance(); }
+    catch (e) {
+      const m = { min: `Minimum withdraw ₹${e.data?.min}`, cooldown: 'On cooldown — try later', wagering: `Wager more first (withdrawable ${fmt(e.data?.withdrawable || 0)})`, insufficient: 'Insufficient balance', upi_required: 'Enter your UPI ID', bank_required: 'Fill all bank fields' };
+      toast(m[e.data?.error] || 'Withdrawal failed');
+    }
+  };
+}
+
+async function openAccount() {
+  openSheet('Account', '<div class="muted">Loading…</div>');
+  try {
+    const a = await papi('/api/play/account');
+    const w = a.wallet;
+    const stat = (k, v) => `<div class="stat-row"><span class="k">${k}</span><span>${v}</span></div>`;
+    const hist = await papi('/api/play/history?page=0').catch(() => ({ bets: [] }));
+    document.getElementById('sheetBody').innerHTML = `
+      <div class="stat-card">
+        ${stat('Available', fmt(w.available))}${stat('Withdrawable', fmt(w.withdrawable))}
+        ${stat('Bonus (locked)', fmt(w.bonus_balance))}${stat('Wager needed', fmt(w.wager_pending))}
+        ${stat('Deposited', fmt(w.total_deposited))}${stat('Withdrawn', fmt(w.total_withdrawn))}${stat('Wagered', fmt(w.total_wagered))}
+      </div>
+      <button class="big-btn" id="dailyBtn" ${a.dailyAvailable ? '' : 'disabled'}>${a.dailyAvailable ? '🎁 Claim daily reward' : 'Daily reward claimed'}</button>
+      <div class="stat-card" style="margin-top:12px">
+        <div class="stat-row"><span class="k">Referral code</span><span><b>${esc(a.referral_code || '—')}</b></span></div>
+        <div class="stat-row"><span class="k">Referrals</span><span>${a.referrals} • earned ${fmt(a.referral_earned)}</span></div>
+        ${a.referred ? '' : `<div class="fld" style="margin-top:8px"><label>Enter a referral code</label><input id="refIn" placeholder="CODE" /></div><button class="big-btn alt" id="refGo">Apply code</button>`}
+      </div>
+      <div class="stat-card">
+        <div class="fld"><label>Redeem a promo code</label><input id="promoIn" placeholder="WELCOME100" /></div>
+        <button class="big-btn alt" id="promoGo">Redeem</button>
+      </div>
+      <div class="sheet-title" style="font-size:14px;margin:6px 0">Recent bets</div>
+      <table class="acct-table"><tbody>${(hist.bets || []).map(b => `<tr><td>${esc(b.game)}</td><td>${fmt(b.stake)}</td><td style="color:${b.result === 'win' ? '#2dc44e' : '#e84242'}">${b.result === 'win' ? '+' + fmt(b.payout) : '−' + fmt(b.stake)}</td></tr>`).join('') || '<tr><td class="muted">No bets yet</td></tr>'}</tbody></table>`;
+
+    const daily = document.getElementById('dailyBtn');
+    if (daily && a.dailyAvailable) daily.onclick = async () => { try { const d = await papi('/api/play/daily', { method: 'POST' }); setBalance(d.balance); toast('🎁 Daily reward claimed'); openAccount(); } catch { toast('Already claimed'); } };
+    const refGo = document.getElementById('refGo');
+    if (refGo) refGo.onclick = async () => { try { await papi('/api/play/refcode', { method: 'POST', body: { code: document.getElementById('refIn').value } }); toast('✅ Referral applied'); openAccount(); } catch { toast('Invalid code'); } };
+    document.getElementById('promoGo').onclick = async () => { try { const d = await papi('/api/play/redeem', { method: 'POST', body: { code: document.getElementById('promoIn').value } }); setBalance(d.balance); toast(`✅ Bonus ${fmt(d.bonus)} added`); openAccount(); } catch (e) { toast({ invalid: 'Invalid code', expired: 'Code expired', already_used: 'Already redeemed' }[e.data?.error] || 'Redeem failed'); } };
+  } catch { document.getElementById('sheetBody').innerHTML = '<div class="muted">Could not load account.</div>'; }
+}
+
+$('#btnDeposit').onclick = () => openCashier('deposit');
+$('#btnWithdraw').onclick = () => openCashier('withdraw');
+$('#btnAccount').onclick = openAccount;
+
 // ── boot ──────────────────────────────────────────────────────────────────────
 resizeCanvas();
 refreshBalance();

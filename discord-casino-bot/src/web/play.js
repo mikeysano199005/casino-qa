@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import jwt from 'jsonwebtoken';
 import { upsertUser, getWallet } from '../repo.js';
 import { startEngine, addSubscriber, placeBet, cashOut, subscriberCount } from './crashEngine.js';
+import { mountAccountApi } from './accountApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -94,6 +95,9 @@ export function mountPlay(app, client) {
     const out = await cashOut(req.player.discordId, req.player.name);
     res.status(out.ok ? 200 : 400).json(out);
   });
+
+  // Wallet (deposit/withdraw) + account (profile/history/daily/redeem/referral).
+  mountAccountApi(app, client, requirePlay);
 
   console.log('▶ web aviator mounted at /play');
 }

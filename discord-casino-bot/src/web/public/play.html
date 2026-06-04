@@ -10,7 +10,12 @@
   <!-- Header: brand + live wallet -->
   <div id="header">
     <div class="brand">✈ <span>Aviator</span></div>
-    <div class="wallet"><span class="wallet-label">Balance</span><span id="balance">₹0.00</span></div>
+    <div class="hdr-actions">
+      <button class="hdr-btn dep" id="btnDeposit">＋ Deposit</button>
+      <button class="hdr-btn" id="btnWithdraw">Withdraw</button>
+      <button class="hdr-btn" id="btnAccount">👤</button>
+      <div class="wallet"><span class="wallet-label">Balance</span><span id="balance">₹0.00</span></div>
+    </div>
   </div>
 
   <!-- Top history bar -->
@@ -81,6 +86,8 @@
     </div>
   </div>
 
+  <div id="sheet" class="hidden"></div>
+  <div id="ptoast"></div>
   <script src="/play/assets/play.js"></script>
 </body>
 </html>
