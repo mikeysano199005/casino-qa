@@ -18,7 +18,6 @@ let bettingEndsAt = null;
 let crashAt = null;                  // revealed only on crash
 let myBet = null;                    // { stake, cashedOut, cashOutAt, payout }
 let betVal = 10;                     // rupees in panel 0
-let trail = [];
 const AVATAR_COLORS = ['#e84242', '#4da6ff', '#5ecf4e', '#d46bff', '#e8a23a', '#3ac6c6', '#c64fa0'];
 
 // ── balance ─────────────────────────────────────────────────────────────────
@@ -90,7 +89,7 @@ function connect() {
     if (d.viewers != null) $('#viewerCount').textContent = d.viewers;
 
     if (phase === 'betting' && prevPhase !== 'betting') {
-      trail = []; myBet = null;
+      myBet = null;
       $('#flewAway').classList.add('hidden');
       $('#multiplier').classList.add('hidden');
     }
@@ -129,55 +128,92 @@ const canvas = $('#game');
 const ctx = canvas.getContext('2d');
 const gameArea = $('#gameArea');
 let raysCanvas = null;
-const originX = () => canvas.width * 0.35;
-const originY = () => canvas.height * 0.55;
+let rayAngle = 0;
+const SUN_X = () => canvas.width * 0.46;
+const SUN_Y = () => canvas.height * 0.52;
 
 function resizeCanvas() {
   const rect = gameArea.getBoundingClientRect();
   canvas.width = Math.max(1, Math.floor(rect.width));
   canvas.height = Math.max(1, Math.floor(rect.height));
 
-  // Pre-render faint rays once to an offscreen canvas.
+  // Pre-render the dark sunburst wedges once (the rotating-ray backdrop).
+  const R = Math.hypot(canvas.width, canvas.height);
   raysCanvas = document.createElement('canvas');
-  raysCanvas.width = canvas.width; raysCanvas.height = canvas.height;
+  raysCanvas.width = raysCanvas.height = R * 2;
   const rc = raysCanvas.getContext('2d');
-  rc.strokeStyle = 'rgba(255,255,255,0.022)';
-  rc.lineWidth = 90;
-  const ox = originX(), oy = originY(), len = canvas.width * 1.8, n = 28;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    rc.beginPath(); rc.moveTo(ox, oy);
-    rc.lineTo(ox + Math.cos(a) * len, oy + Math.sin(a) * len);
-    rc.stroke();
+  const c = R; // center of the offscreen square
+  const n = 24;
+  rc.fillStyle = 'rgba(0,0,0,0.28)';
+  for (let i = 0; i < n; i += 2) {
+    const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+    rc.beginPath(); rc.moveTo(c, c); rc.arc(c, c, R, a0, a1); rc.closePath(); rc.fill();
   }
 }
 window.addEventListener('load', resizeCanvas);
 window.addEventListener('resize', resizeCanvas);
 
-// Soft radial glow + the faint rays — drawn every frame as the background.
+// Background: dark base + slowly rotating sunburst + soft purple glow behind the number.
 function drawBackground() {
-  const ox = originX(), oy = originY();
-  const glow = ctx.createRadialGradient(ox, oy, 0, ox, oy, 120);
-  glow.addColorStop(0, 'rgba(255,255,255,0.06)');
-  glow.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath(); ctx.arc(ox, oy, 120, 0, Math.PI * 2); ctx.fill();
-  if (raysCanvas) ctx.drawImage(raysCanvas, 0, 0);
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (raysCanvas) {
+    rayAngle += 0.0008;
+    ctx.save();
+    ctx.translate(SUN_X(), SUN_Y());
+    ctx.rotate(rayAngle);
+    ctx.drawImage(raysCanvas, -raysCanvas.width / 2, -raysCanvas.height / 2);
+    ctx.restore();
+  }
+  const cx = canvas.width * 0.45, cy = canvas.height * 0.5, r = Math.max(canvas.width, canvas.height) * 0.55;
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  glow.addColorStop(0, 'rgba(120,70,210,0.22)');
+  glow.addColorStop(0.55, 'rgba(70,40,130,0.10)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-function planePos(progress) {
-  const sx = canvas.width * 0.05, sy = canvas.height * 0.88;
-  const ex = canvas.width * 0.72, ey = canvas.height * 0.22;
-  return { x: lerp(sx, ex, progress), y: lerp(sy, ey, progress * progress) };
+// The flight path: origin bottom-left → upper-right. Y uses a power curve so it
+// stays low then sweeps up steeply (the classic Aviator arc).
+function curvePoint(t) {
+  const sx = canvas.width * 0.04, sy = canvas.height * 0.90;
+  const ex = canvas.width * 0.90, ey = canvas.height * 0.16;
+  return { x: lerp(sx, ex, t), y: lerp(sy, ey, Math.pow(t, 2.1)) };
+}
+function planeAngle(progress) {
+  const a = curvePoint(Math.max(0, progress - 0.02)), b = curvePoint(progress);
+  return Math.atan2(b.y - a.y, b.x - a.x);
+}
+// Draws the FULL curve from the origin to the current progress, with the red
+// gradient fill beneath it. Returns the tip (where the plane sits).
+function drawCurve(progress, crashed) {
+  const steps = 70, pts = [];
+  for (let i = 0; i <= steps; i++) pts.push(curvePoint(progress * i / steps));
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (const p of pts) ctx.lineTo(p.x, p.y);
+  ctx.lineTo(pts[pts.length - 1].x, canvas.height);
+  ctx.lineTo(pts[0].x, canvas.height);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  g.addColorStop(0, 'rgba(232,55,55,0.22)');
+  g.addColorStop(1, 'rgba(150,20,20,0.45)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (const p of pts) ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = crashed ? '#9b2222' : '#ff3b3b';
+  ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.stroke();
+  return pts[pts.length - 1];
 }
 
-function drawPlane(x, y, crashed) {
-  const s = 42;
+function drawPlane(x, y, crashed, angle) {
+  const s = 46;
   ctx.save();
   ctx.translate(x, y);
-  if (crashed) ctx.rotate(0.5);
+  ctx.rotate(crashed ? 0.5 : (angle || 0));
   // body
   ctx.beginPath();
   ctx.moveTo(s * 0.6, 0); ctx.lineTo(s * -0.3, s * -0.18); ctx.lineTo(s * -0.3, s * 0.18); ctx.closePath();
@@ -191,22 +227,6 @@ function drawPlane(x, y, crashed) {
   ctx.restore();
 }
 
-function drawTrail() {
-  if (trail.length < 2) return;
-  ctx.beginPath();
-  ctx.moveTo(trail[0].x, trail[0].y);
-  for (const p of trail) ctx.lineTo(p.x, p.y);
-  ctx.strokeStyle = '#e84242'; ctx.lineWidth = 2.5; ctx.stroke();
-  // gradient fill under the trail
-  ctx.lineTo(trail[trail.length - 1].x, canvas.height);
-  ctx.lineTo(trail[0].x, canvas.height);
-  ctx.closePath();
-  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  g.addColorStop(0, 'rgba(232,66,66,0)');
-  g.addColorStop(1, 'rgba(232,66,66,0.18)');
-  ctx.fillStyle = g; ctx.fill();
-}
-
 function frame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
@@ -216,21 +236,18 @@ function frame() {
     let mult = Math.pow(1.07, elapsed / 1000);
     if (crashAt && mult > crashAt) mult = crashAt;
     // Plane climbs with the multiplier (accelerates upward like real Aviator).
-    const progress = Math.min(1, Math.max(0, Math.log(mult) / Math.log(15)));
-    const p = planePos(progress);
-    trail.push(p);
-    if (trail.length > 120) trail.shift();
-    drawTrail();
-    drawPlane(p.x, p.y, false);
+    const progress = Math.min(1, Math.max(0.001, Math.log(mult) / Math.log(15)));
+    const tip = drawCurve(progress, false);
+    drawPlane(tip.x, tip.y, false, planeAngle(progress));
     $('#multiplier').textContent = mult.toFixed(2) + 'x';
     if (myBet && !myBet.cashedOut)
       $('#p0sub').textContent = fmt(Math.floor(Number(myBet.stake) * mult)) + ' @ ' + mult.toFixed(2) + 'x';
   } else if (phase === 'crashed') {
-    drawTrail();
-    const p = trail.length ? trail[trail.length - 1] : planePos(0.5);
-    drawPlane(p.x, p.y, true);
+    const cp = Math.min(1, Math.max(0.001, Math.log(crashAt || 1.01) / Math.log(15)));
+    const tip = drawCurve(cp, true);
+    drawPlane(tip.x, tip.y, true, 0);
   }
-  // betting / waiting: background only (no plane, no trail)
+  // betting / waiting: background only (no plane, no curve)
 
   if (phase === 'betting') {
     const secs = bettingEndsAt ? Math.max(0, Math.ceil((bettingEndsAt - now()) / 1000)) : 0;
