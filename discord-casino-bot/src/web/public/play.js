@@ -18,6 +18,8 @@ let bettingEndsAt = null;
 let crashAt = null;                  // revealed only on crash
 let myBet = null;                    // { stake, cashedOut, cashOutAt, payout }
 let betVal = 10;                     // rupees in panel 0
+const GROWTH = 1.12;                 // multiplier growth per second (must match the server engine)
+let lastProgress = 0.5;              // plane position at the moment of crash
 const AVATAR_COLORS = ['#e84242', '#4da6ff', '#5ecf4e', '#d46bff', '#e8a23a', '#3ac6c6', '#c64fa0'];
 
 // ── balance ─────────────────────────────────────────────────────────────────
@@ -110,9 +112,9 @@ function connect() {
     syncClock(d.serverTime);
     // Hard-align to the server's authoritative multiplier if we've drifted.
     if (phase === 'flying' && startTime && d.mult) {
-      const localMult = Math.pow(1.07, (now() - startTime) / 1000);
+      const localMult = Math.pow(GROWTH, (now() - startTime) / 1000);
       if (Math.abs(localMult - d.mult) > 0.05) {
-        const targetElapsed = Math.log(d.mult) / Math.log(1.07) * 1000;
+        const targetElapsed = Math.log(d.mult) / Math.log(GROWTH) * 1000;
         const desiredOffset = startTime + targetElapsed - Date.now();
         clockOffset += (desiredOffset - clockOffset) * 0.3;
       }
@@ -251,18 +253,19 @@ function frame() {
 
   if (phase === 'flying' && startTime) {
     const elapsed = now() - startTime;
-    let mult = Math.pow(1.07, elapsed / 1000);
+    const es = elapsed / 1000;
+    let mult = Math.pow(GROWTH, es);
     if (crashAt && mult > crashAt) mult = crashAt;
-    // Plane climbs with the multiplier (accelerates upward like real Aviator).
-    const progress = Math.min(1, Math.max(0.001, Math.log(mult) / Math.log(15)));
+    // Plane shoots up fast, then hovers near the top-right (real Aviator feel).
+    const progress = Math.min(0.95, 1 - Math.exp(-es / 0.9));
+    lastProgress = progress;
     const tip = drawCurve(progress, false);
     drawPlane(tip.x, tip.y, false, planeAngle(progress));
     $('#multiplier').textContent = mult.toFixed(2) + 'x';
     if (myBet && !myBet.cashedOut)
       $('#p0sub').textContent = fmt(Math.floor(Number(myBet.stake) * mult)) + ' @ ' + mult.toFixed(2) + 'x';
   } else if (phase === 'crashed') {
-    const cp = Math.min(1, Math.max(0.001, Math.log(crashAt || 1.01) / Math.log(15)));
-    const tip = drawCurve(cp, true);
+    const tip = drawCurve(lastProgress, true);
     drawPlane(tip.x, tip.y, true, 0);
   }
   // betting / waiting: background only (no plane, no curve)

@@ -13,8 +13,10 @@ const BETTING_MS = 7_000;   // betting window
 const CRASHED_MS = 3_500;   // pause after crash before next round
 const TICK_MS    = 250;     // engine tick / sync cadence
 
-// multiplier as a function of elapsed ms since flight start (same as Discord crash)
-const multiplierAt = (ms) => Math.pow(1.07, ms / 1000);
+// multiplier as a function of elapsed ms since flight start.
+// GROWTH must match the client (play.js) so the displayed and settled values agree.
+const GROWTH = 1.12;
+const multiplierAt = (ms) => Math.pow(GROWTH, ms / 1000);
 
 // Same crash-point curve as src/games/crash.js (honors the admin "crash" preset).
 function computeCrashAt(preset, r) {
