@@ -470,6 +470,7 @@ function openLobby() {
     <div class="lobby-card" data-g="dice"><div class="lobby-emoji">🎲</div><div class="lobby-name">Dice</div></div>
     <div class="lobby-card" data-g="slots"><div class="lobby-emoji">🎰</div><div class="lobby-name">Slots</div></div>
     <div class="lobby-card" data-g="mines"><div class="lobby-emoji">💣</div><div class="lobby-name">Mines</div></div>
+    <div class="lobby-card" data-g="colour"><div class="lobby-emoji">🎨</div><div class="lobby-name">Colour</div></div>
   </div>`);
   sheet.querySelectorAll('[data-g]').forEach(c => c.onclick = () => {
     const g = c.dataset.g;
@@ -477,6 +478,7 @@ function openLobby() {
     if (g === 'dice') return openDice();
     if (g === 'slots') return openSlots();
     if (g === 'mines') return openMines();
+    if (g === 'colour') return openColour();
   });
 }
 
@@ -620,6 +622,54 @@ function openMines() {
   papi('/api/play/mines/state').then(st => {
     if (st.active) { setActive(true); drawGrid(st.revealed); upd(st.multiplier, st.next); }
   }).catch(() => {});
+}
+
+let colourES = null;
+function openColour() {
+  openSheet('🎨 Colour', `
+    <div class="col-timer" id="colTimer">—</div>
+    <div class="col-winner hidden" id="colWinner"></div>
+    <div class="col-hist" id="colHist"></div>
+    <div class="col-pads" id="colPads">
+      <div class="col-pad green" data-k="green">Green<small>2×</small></div>
+      <div class="col-pad violet" data-k="violet">Violet<small>8×</small></div>
+      <div class="col-pad red" data-k="red">Red<small>2×</small></div>
+    </div>
+    <div class="stat-row"><span class="k">Your bet</span><span id="colYou">none</span></div>
+    <div class="fld"><label>Bet (₹)</label><input id="colAmt" type="number" value="10" /></div>
+    <div class="chips">${[10, 20, 50, 100].map(v => `<button data-ca="${v}">${v}</button>`).join('')}</div>`);
+  sheet.querySelectorAll('[data-ca]').forEach(b => b.onclick = () => document.getElementById('colAmt').value = b.dataset.ca);
+
+  let offset = 0, phase = 'betting', endsAt = 0, myBet = null;
+  const cnow = () => Date.now() + offset;
+  const renderHist = (h) => { document.getElementById('colHist').innerHTML = h.map(w => `<div class="col-dot col-${w}"></div>`).join(''); };
+  const setYou = () => document.getElementById('colYou').textContent = myBet ? `${fmt(myBet.stake)} on ${myBet.key}` : 'none';
+
+  sheet.querySelectorAll('.col-pad').forEach(p => p.onclick = async () => {
+    if (phase !== 'betting' || myBet) return;
+    const amount = Number(document.getElementById('colAmt').value);
+    try { const d = await papi('/api/play/colour/bet', { method: 'POST', body: { amount, key: p.dataset.k } }); setBalance(d.balance); }
+    catch (e) { toast({ betting_closed: 'Betting closed', already_bet: 'Already bet this round', insufficient: '💸 Insufficient', maintenance: '🚧 Paused' }[e.data?.error] || 'Bet failed'); }
+  });
+
+  if (colourES) colourES.close();
+  colourES = new EventSource('/api/play/colour/stream');
+  colourES.addEventListener('state', (e) => {
+    const d = JSON.parse(e.data); offset = d.serverTime - Date.now(); phase = d.phase; endsAt = d.bettingEndsAt;
+    if (d.history) renderHist(d.history);
+    const win = document.getElementById('colWinner');
+    if (phase === 'result' && d.winner) { win.textContent = `Winner: ${d.winner.toUpperCase()}`; win.className = 'col-winner col-' + d.winner; win.classList.remove('hidden'); myBet = null; setYou(); }
+    else { win.classList.add('hidden'); }
+    document.getElementById('colPads').classList.toggle('disabled', phase !== 'betting');
+  });
+  colourES.addEventListener('sync', (e) => { offset = JSON.parse(e.data).serverTime - Date.now(); });
+  colourES.addEventListener('you', (e) => { myBet = JSON.parse(e.data).bet; setYou(); });
+  colourES.addEventListener('wallet', (e) => setBalance(JSON.parse(e.data).balance));
+
+  const tmr = setInterval(() => {
+    if (!sheet.querySelector('#colTimer')) { clearInterval(tmr); if (colourES) { colourES.close(); colourES = null; } return; }
+    document.getElementById('colTimer').textContent = phase === 'betting' ? Math.max(0, Math.ceil((endsAt - cnow()) / 1000)) + 's' : '⏳';
+  }, 200);
 }
 
 $('#btnGames').onclick = openLobby;

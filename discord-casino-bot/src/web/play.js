@@ -9,6 +9,7 @@ import { startEngine, addSubscriber, placeBet, cashOut, subscriberCount } from '
 import { mountAccountApi } from './accountApi.js';
 import { mountGamesApi } from './gamesApi.js';
 import { mountMinesApi } from './minesApi.js';
+import { startColourEngine, addColourSubscriber, colourBet } from './colourEngine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -40,6 +41,7 @@ function requirePlay(req, res, next) {
 
 export function mountPlay(app, client) {
   startEngine(client);
+  startColourEngine(client);
 
   // Static assets (css/js) — no auth needed.
   app.use('/play/assets', express.static(PUBLIC_DIR));
@@ -104,6 +106,21 @@ export function mountPlay(app, client) {
   mountGamesApi(app, client, requirePlay);
   // Mines (session-based).
   mountMinesApi(app, client, requirePlay);
+
+  // Colour prediction (live round engine, SSE).
+  app.get('/api/play/colour/stream', requirePlay, (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    res.write(': connected\n\n');
+    upsertUser(req.player.discordId, req.player.name).then(u => {
+      const remove = addColourSubscriber(res, u.id);
+      const hb = setInterval(() => { try { res.write('event: hb\ndata: 1\n\n'); } catch {} }, 20000);
+      req.on('close', () => { clearInterval(hb); remove(); });
+    }).catch(() => res.end());
+  });
+  app.post('/api/play/colour/bet', requirePlay, async (req, res) => {
+    const out = await colourBet(req.player.discordId, req.player.name, req.body?.amount, req.body?.key);
+    res.status(out.ok ? 200 : 400).json(out);
+  });
 
   console.log('▶ web aviator mounted at /play');
 }

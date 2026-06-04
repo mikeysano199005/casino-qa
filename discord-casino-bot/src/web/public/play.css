@@ -121,6 +121,17 @@ body {
 .mtile.gem { background: #14301f; border-color: #1f6f3a; }
 .mtile.bomb { background: #3a1414; border-color: #b91c1c; }
 .mtile.done { cursor: default; }
+.col-hist { display: flex; gap: 5px; flex-wrap: wrap; margin: 8px 0 14px; }
+.col-dot { width: 18px; height: 18px; border-radius: 50%; }
+.col-green { background: #2dc44e; } .col-red { background: #e84242; } .col-violet { background: #a855f7; }
+.col-pads { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 14px 0; }
+.col-pad { padding: 16px 6px; border-radius: 12px; text-align: center; font-weight: 700; cursor: pointer; color: #fff; border: 2px solid transparent; }
+.col-pad small { display: block; font-weight: 400; opacity: .85; font-size: 11px; }
+.col-pad.green { background: #1e7d3a; } .col-pad.red { background: #b1322f; } .col-pad.violet { background: #7a3fb0; }
+.col-pad:hover { border-color: #fff; }
+.col-pad.disabled { opacity: .5; pointer-events: none; }
+.col-timer { text-align: center; font-size: 28px; font-weight: 800; margin: 6px 0; }
+.col-winner { text-align: center; font-size: 20px; font-weight: 800; margin: 8px 0; }
 #ptoast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 99; display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .ptoast-item { background: #18181e; border: 1px solid #2a2a32; color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 13px; }
 .ptoast-item.err { border-color: #b91c1c; }
