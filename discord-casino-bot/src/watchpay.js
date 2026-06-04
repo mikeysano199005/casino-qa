@@ -5,6 +5,7 @@ import { applyTx, creditReferralBonus } from './repo.js';
 import { logDeposit, logPaymentError } from './admin/logs.js';
 import { buildSign } from './util/watchpay.js';
 import { mountAdminPanel } from './admin/web/index.js';
+import { mountPlay } from './web/play.js';
 import { EmbedBuilder } from 'discord.js';
 
 const WATCHPAY_IP = '18.141.88.123';
@@ -17,6 +18,9 @@ export function startWebhookServer(client) {
 
   // Web admin panel (/admin + /api/admin/*), Discord-OAuth gated.
   mountAdminPanel(app, client);
+
+  // Web Aviator game (/play + /api/play/*), no-login signed-token access.
+  mountPlay(app, client);
 
   // Log every incoming request so we can see what WatchPay sends
   app.use((req, _res, next) => {

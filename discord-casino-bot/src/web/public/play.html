@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Aviator</title>
+  <link rel="stylesheet" href="/play/assets/play.css" />
+</head>
+<body>
+  <!-- Header: brand + live wallet -->
+  <div id="header">
+    <div class="brand">✈ <span>Aviator</span></div>
+    <div class="wallet"><span class="wallet-label">Balance</span><span id="balance">₹0.00</span></div>
+  </div>
+
+  <!-- Top history bar -->
+  <div id="topbar"></div>
+
+  <!-- Middle: sidebar + game -->
+  <div id="middle">
+    <aside id="sidebar">
+      <div class="tabs">
+        <div class="tab active">All Bets</div>
+        <div class="tab">Previous</div>
+        <div class="tab">Top</div>
+      </div>
+      <div id="betCount" class="bet-count">0 Bets</div>
+      <div id="betList" class="bet-list"></div>
+    </aside>
+
+    <div id="gameArea">
+      <canvas id="game"></canvas>
+      <div id="multiplier">1.00x</div>
+      <div id="flewAway" class="hidden">
+        <div class="flew-title">FLEW AWAY!</div>
+        <div id="crashMult" class="flew-mult">0.00x</div>
+      </div>
+      <div id="statusBanner" class="banner hidden"></div>
+      <div id="viewers"><span class="dot"></span><span id="viewerCount">0</span></div>
+    </div>
+  </div>
+
+  <!-- Bottom: bet panels -->
+  <div id="controls">
+    <div class="bet-panel" data-panel="0">
+      <div class="panel-tabs"><div class="ptab active">Bet</div><div class="ptab">Auto</div></div>
+      <div class="panel-body">
+        <div class="stepper">
+          <button class="step" data-act="dec">−</button>
+          <input class="amount" type="text" inputmode="decimal" value="10.00" />
+          <button class="step" data-act="inc">+</button>
+        </div>
+        <div class="quick">
+          <button data-q="10">10</button><button data-q="20">20</button>
+          <button data-q="50">50</button><button data-q="100">100</button>
+        </div>
+        <button class="action">
+          <span class="action-main">Bet</span>
+          <span class="action-sub">10.00 ₹</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="bet-panel visual" data-panel="1">
+      <div class="panel-tabs"><div class="ptab active">Bet</div><div class="ptab">Auto</div></div>
+      <div class="panel-body">
+        <div class="stepper">
+          <button class="step" data-act="dec">−</button>
+          <input class="amount" type="text" inputmode="decimal" value="10.00" />
+          <button class="step" data-act="inc">+</button>
+        </div>
+        <div class="quick">
+          <button data-q="10">10</button><button data-q="20">20</button>
+          <button data-q="50">50</button><button data-q="100">100</button>
+        </div>
+        <button class="action">
+          <span class="action-main">Bet</span>
+          <span class="action-sub">10.00 ₹</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/play/assets/play.js"></script>
+</body>
+</html>
