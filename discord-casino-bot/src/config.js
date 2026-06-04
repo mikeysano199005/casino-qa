@@ -73,6 +73,7 @@ export const CHANNEL_KEYS = [
   { key: 'CH_MATKA_PREDICTION', label: 'Matka VIP predictions', group: 'Games',  apply: 'live'    },
 
   { key: 'CH_ADMIN_PANEL',      label: 'Admin panel',           group: 'Admin',   apply: 'panel'   },
+  { key: 'CH_SLOTS_ADMIN',      label: 'Slots admin control',   group: 'Admin',   apply: 'panel'   },
   { key: 'CH_WITHDRAW_REQUESTS', label: 'Withdraw requests',    group: 'Admin',   apply: 'live'    },
   { key: 'CH_WITHDRAW_HISTORY', label: 'Withdraw history',      group: 'Admin',   apply: 'live'    },
   { key: 'CH_DEPOSIT_LOGS',     label: 'Deposit logs',          group: 'Admin',   apply: 'live'    },

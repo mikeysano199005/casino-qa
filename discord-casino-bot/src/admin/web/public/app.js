@@ -66,6 +66,22 @@ function openModal({ title, help, fields = [], confirmLabel = 'Confirm', danger 
 }
 const confirmModal = (opts) => openModal({ confirmLabel: 'Yes', ...opts, fields: [] }).then(v => v !== null);
 
+// Render per-panel re-post results into a target element id.
+function showResyncResults(targetId, results) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const line = (x) => {
+    if (x.ok) return `<div>✅ <b>${esc(x.label)}</b> → #${esc(x.channel)} <span class="muted">(${esc(x.guild || '')})</span></div>`;
+    if (x.skipped) return `<div>⚪ <b>${esc(x.label)}</b> <span class="muted">— not set</span></div>`;
+    return `<div>❌ <b>${esc(x.label)}</b> <span style="color:var(--red)">— ${esc(x.error)}</span> <span class="muted">(${esc(x.channelId || '')})</span></div>`;
+  };
+  const fails = results.filter(r => !r.ok && !r.skipped).length;
+  el.innerHTML = `<div class="card pad" style="margin-top:12px;border-left:4px solid ${fails ? 'var(--red)' : 'var(--green)'}">
+    <b>Re-post results</b> ${fails ? `<span style="color:var(--red)">— ${fails} failed</span>` : '<span style="color:var(--green)">— all posted</span>'}
+    <div style="margin-top:8px;font-size:13px;line-height:1.8">${results.map(line).join('')}</div>
+    ${fails ? '<div class="muted" style="margin-top:8px">“Missing Access” = the bot still can’t post there. Make sure the bot’s role has <b>View Channel</b> + <b>Send Messages</b> on that exact channel (channel-level overrides beat the role’s server-wide permission).</div>' : ''}</div>`;
+}
+
 // ── CSV export ────────────────────────────────────────────────────────────
 function exportCsv(filename, rows) {
   if (!rows.length) return err('Nothing to export');
@@ -397,6 +413,7 @@ ROUTES.channels = async () => {
       <button class="btn btn-ghost" id="resync">🔁 Re-post panels</button>
       <button class="btn btn-red" id="restart">⟳ Apply &amp; Restart</button>
     </div>
+    <div id="resyncResults"></div>
     ${Object.entries(groups).map(([g, items]) => `<div class="card pad"><h2>${g} channels</h2>${items.map(channelRow).join('')}</div>`).join('')}
     <div class="card pad"><h2>Money limits</h2>${config.map(configRow).join('')}</div>`;
 
@@ -410,7 +427,7 @@ ROUTES.channels = async () => {
   };
   document.getElementById('resync').onclick = async () => {
     if (!await confirmModal({ title: 'Re-post panels?', help: 'Re-posts the wallet/game/admin panels into their current channels. Use this after changing a panel channel.' })) return;
-    try { await api('/settings/resync-panels', { method: 'POST' }); ok('Panels re-posted'); } catch (e) { err(e); }
+    try { const r = await api('/settings/resync-panels', { method: 'POST' }); showResyncResults('resyncResults', r.results || []); ok('Done — see results above'); window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { err(e); }
   };
   document.getElementById('restart').onclick = async () => {
     if (!await confirmModal({ title: 'Restart the bot?', help: 'Saves nothing on its own — save first if needed. The bot reconnects in ~15s and applies all channel changes (including game loops).', danger: true, confirmLabel: 'Restart now' })) return;
@@ -532,14 +549,14 @@ ROUTES.controls = async () => {
       <p class="subtitle">When ON, players can’t play games (they see a “paused” message); wallet & support still work. Admins can still play.</p>
       <button class="btn ${m.enabled ? 'btn-red' : 'btn-green'}" id="maint">${m.enabled ? 'Turn OFF' : 'Turn ON'}</button></div>
     <div class="card pad"><h2>Panels</h2><p class="subtitle">Re-post the wallet/game/admin panels into their current channels.</p>
-      <button class="btn btn-ghost" id="resync">🔁 Re-post panels</button></div>
+      <button class="btn btn-ghost" id="resync">🔁 Re-post panels</button><div id="resyncResults"></div></div>
     <div class="card pad"><h2>Restart</h2><p class="subtitle">Restarts the bot (reconnects in ~15s). Applies channel changes that need a restart.</p>
       <button class="btn btn-red" id="restart">⟳ Restart bot</button></div>`;
   document.getElementById('maint').onclick = async () => {
     if (!await confirmModal({ title: m.enabled ? 'Turn off maintenance?' : 'Turn on maintenance?', help: m.enabled ? 'Players can play again.' : 'Players will be blocked from games until you turn it off.', danger: !m.enabled })) return;
     try { const r = await api('/maintenance/toggle', { method: 'POST' }); ok(`Maintenance ${r.enabled ? 'ON' : 'OFF'}`); route(); } catch (e) { err(e); }
   };
-  document.getElementById('resync').onclick = async () => { try { await api('/settings/resync-panels', { method: 'POST' }); ok('Panels re-posted'); } catch (e) { err(e); } };
+  document.getElementById('resync').onclick = async () => { try { const r = await api('/settings/resync-panels', { method: 'POST' }); showResyncResults('resyncResults', r.results || []); ok('Done — see results'); } catch (e) { err(e); } };
   document.getElementById('restart').onclick = async () => {
     if (!await confirmModal({ title: 'Restart the bot?', danger: true, confirmLabel: 'Restart now' })) return;
     try { await api('/settings/restart', { method: 'POST' }); ok('Restarting… reconnect in ~15s'); } catch (e) { err(e); }

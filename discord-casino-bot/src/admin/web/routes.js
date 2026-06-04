@@ -42,7 +42,7 @@ export function adminApiRouter(client) {
   });
 
   r.post('/settings/resync-panels', async (_req, res) => {
-    try { await postStaticPanels(client); res.json({ ok: true }); }
+    try { const results = await postStaticPanels(client); res.json({ ok: true, results }); }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
