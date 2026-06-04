@@ -4,7 +4,14 @@ const fmt = (paise) => '₹' + (Number(paise) / 100).toLocaleString('en-IN', { m
 
 // ── state ───────────────────────────────────────────────────────────────────
 let clockOffset = 0;                 // serverTime - localTime
+let clockInit = false;
 const now = () => Date.now() + clockOffset;
+// Low-pass the offset so latency jitter doesn't make the multiplier jump.
+function syncClock(serverTime) {
+  const target = serverTime - Date.now();
+  if (!clockInit) { clockOffset = target; clockInit = true; }
+  else clockOffset += (target - clockOffset) * 0.2;
+}
 let phase = 'waiting';
 let startTime = null;                // server ms when flight started
 let bettingEndsAt = null;
@@ -73,7 +80,7 @@ function connect() {
   const es = new EventSource('/api/play/stream');
   es.addEventListener('state', (e) => {
     const d = JSON.parse(e.data);
-    clockOffset = d.serverTime - Date.now();
+    syncClock(d.serverTime);
     const prevPhase = phase;
     phase = d.phase;
     startTime = d.startTime;
@@ -99,7 +106,19 @@ function connect() {
     }
     updateAction();
   });
-  es.addEventListener('sync', (e) => { const d = JSON.parse(e.data); clockOffset = d.serverTime - Date.now(); });
+  es.addEventListener('sync', (e) => {
+    const d = JSON.parse(e.data);
+    syncClock(d.serverTime);
+    // Hard-align to the server's authoritative multiplier if we've drifted.
+    if (phase === 'flying' && startTime && d.mult) {
+      const localMult = Math.pow(1.07, (now() - startTime) / 1000);
+      if (Math.abs(localMult - d.mult) > 0.05) {
+        const targetElapsed = Math.log(d.mult) / Math.log(1.07) * 1000;
+        const desiredOffset = startTime + targetElapsed - Date.now();
+        clockOffset += (desiredOffset - clockOffset) * 0.3;
+      }
+    }
+  });
   es.addEventListener('bets', (e) => renderBets(JSON.parse(e.data)));
   es.addEventListener('you', (e) => { myBet = JSON.parse(e.data).bet; updateAction(); });
   es.onerror = () => {/* browser auto-reconnects */};
@@ -196,7 +215,8 @@ function frame() {
     const elapsed = now() - startTime;
     let mult = Math.pow(1.07, elapsed / 1000);
     if (crashAt && mult > crashAt) mult = crashAt;
-    const progress = Math.min(1, elapsed / 8000);
+    // Plane climbs with the multiplier (accelerates upward like real Aviator).
+    const progress = Math.min(1, Math.max(0, Math.log(mult) / Math.log(15)));
     const p = planePos(progress);
     trail.push(p);
     if (trail.length > 120) trail.shift();

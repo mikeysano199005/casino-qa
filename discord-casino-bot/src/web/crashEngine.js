@@ -57,11 +57,27 @@ const maskName = (n) => {
   const s = String(n || 'player');
   return s.length <= 2 ? s[0] + '***' : s[0] + '***' + s[s.length - 1];
 };
+
+// Ambient (cosmetic) bets so the lobby always looks busy. Never touch the DB/wallet.
+const NAME_CHARS = 'abcdefghijklmnopqrstuvwxyz';
+function makeFillerBets() {
+  const n = Math.floor(Math.random() * 35) + 25; // 25–60 ambient bets
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const c = NAME_CHARS[Math.floor(Math.random() * 26)];
+    const d = Math.floor(Math.random() * 9) + 1;
+    const stake = BigInt((Math.floor(Math.random() * 200) + 1) * 100); // ₹1–₹200 (paise)
+    // ~80% will cash out at a random multiplier, the rest ride to the crash (lose)
+    const target = Math.random() < 0.8 ? Math.round((1.1 + Math.random() * 4.5) * 100) / 100 : null;
+    out.push({ name: `${c}***${d}`, stake, target, cashedOut: false, cashOutAt: null });
+  }
+  return out;
+}
 const betView = (b) => ({ stake: b.stake.toString(), cashedOut: !!b.cashedOut, cashOutAt: b.cashOutAt || null,
   payout: b.cashedOut ? Math.floor(Number(b.stake) * b.cashOutAt).toString() : null });
 
 function publicState() {
-  if (!state) return { phase: 'waiting', serverTime: Date.now(), history: history.slice(0, 30) };
+  if (!state) return { phase: 'waiting', serverTime: Date.now(), history: history.slice(0, 30), viewers: subscriberCount() };
   return {
     phase: state.phase,
     roundId: state.round.id,
@@ -70,17 +86,24 @@ function publicState() {
     startTime: state.startedAt || null,
     crashAt: state.phase === 'crashed' ? state.crashAt : null,
     history: history.slice(0, 30),
-    players: state.bets.size + (state.fakePlayers || 0),
-    viewers: state.viewers || 0,
+    players: state.bets.size + (state.filler?.length || 0),
+    viewers: subscriberCount(),  // real connected clients
   };
 }
 function publicBets() {
   if (!state) return [];
-  return [...state.bets.values()].map(b => ({
+  // Real bets first (source of truth for money), then ambient filler for ambiance.
+  const real = [...state.bets.values()].map(b => ({
     name: maskName(b.username), stake: b.stake.toString(),
     cashedOut: !!b.cashedOut, cashOutAt: b.cashOutAt || null,
     payout: b.cashedOut ? Math.floor(Number(b.stake) * b.cashOutAt).toString() : null,
   }));
+  const filler = (state.filler || []).map(f => ({
+    name: f.name, stake: f.stake.toString(),
+    cashedOut: f.cashedOut, cashOutAt: f.cashOutAt || null,
+    payout: f.cashedOut ? Math.floor(Number(f.stake) * f.cashOutAt).toString() : null,
+  }));
+  return [...real, ...filler];
 }
 
 // ── round lifecycle ──────────────────────────────────────────────────────────
@@ -110,9 +133,9 @@ async function openRound() {
     phase: 'betting',
     bettingEndsAt: Date.now() + BETTING_MS,
     startedAt: null,
-    bets: new Map(),                       // userId -> bet
-    fakePlayers: Math.floor(Math.random() * 60) + 40,
-    viewers: Math.floor(Math.random() * 120) + 200,
+    bets: new Map(),                       // userId -> real bet
+    filler: makeFillerBets(),              // cosmetic ambient bets
+    lastBetsBroadcast: 0,
   };
   broadcast('state', publicState());
   broadcast('bets', publicBets());
@@ -166,7 +189,18 @@ async function tick() {
       setTimeout(() => { openRound().catch(e => console.error('[web crash] openRound', e.message)); }, CRASHED_MS);
       state.crashedAt = now;
     } else {
-      broadcast('sync', { serverTime: now });
+      // Animate ambient filler cash-outs as the multiplier climbs.
+      let changed = false;
+      for (const f of state.filler) {
+        if (!f.cashedOut && f.target && mult >= f.target && f.target < state.crashAt) {
+          f.cashedOut = true; f.cashOutAt = f.target; changed = true;
+        }
+      }
+      if (changed && now - state.lastBetsBroadcast > 300) {
+        state.lastBetsBroadcast = now;
+        broadcast('bets', publicBets());
+      }
+      broadcast('sync', { serverTime: now, mult: Math.round(mult * 100) / 100 });
     }
     return;
   }
@@ -177,8 +211,6 @@ export function startEngine(discordClient) {
   client = discordClient;
   openRound().catch(e => console.error('[web crash] initial openRound', e.message));
   setInterval(() => tick().catch(e => console.error('[web crash] tick', e.message)), TICK_MS);
-  // refresh viewer count a touch for liveliness
-  setInterval(() => { if (state) { state.viewers = Math.floor(Math.random() * 120) + 200; } }, 9000);
   console.log('▶ web aviator engine started');
 }
 
