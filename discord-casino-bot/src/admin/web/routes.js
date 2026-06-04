@@ -74,6 +74,18 @@ export function adminApiRouter(client) {
     res.json(rows);
   });
 
+  // ─── Unified activity log (everything that would go to Discord) ────────
+  r.get('/logs', async (req, res) => {
+    const kind = (req.query.kind || '').toString();
+    const limit = Math.min(500, Number(req.query.limit) || 200);
+    const params = kind ? [kind, limit] : [limit];
+    const { rows } = await q(
+      `SELECT id, kind, title, body, discord_id, amount, created_at
+       FROM event_logs ${kind ? 'WHERE kind=$1' : ''}
+       ORDER BY created_at DESC LIMIT $${kind ? 2 : 1}`, params);
+    res.json(rows.map(r2 => ({ ...r2, amount: r2.amount != null ? String(r2.amount) : null })));
+  });
+
   // ─── Users ────────────────────────────────────────────────────────────
   r.get('/users', async (req, res) => {
     const search = (req.query.search || '').toString().trim();

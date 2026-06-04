@@ -3,6 +3,7 @@
 import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { fmt } from '../util/money.js';
 import { cfg } from '../config.js';
+import { q } from '../db/index.js';
 
 const safeSend = async (client, channelId, payload) => {
   if (!channelId) return;
@@ -11,6 +12,14 @@ const safeSend = async (client, channelId, payload) => {
     await ch.send(payload);
   } catch (e) { console.warn('[log send]', e.message); }
 };
+
+// Persist every event to event_logs so the web panel shows all activity even
+// when the bot can't post to Discord channels. Fire-and-forget; never throws.
+export function logEvent(kind, { title = null, body = null, discordId = null, amount = null, meta = null } = {}) {
+  q(`INSERT INTO event_logs(kind,title,body,discord_id,amount,meta) VALUES($1,$2,$3,$4,$5,$6)`,
+    [kind, title, body, discordId, amount != null ? String(amount) : null, meta || null])
+    .catch(() => {});
+}
 
 // Mirror payload to CH_AUDIT_LOG unless it's already the target channel.
 const mirrorToAudit = (client, primaryId, payload) => {
@@ -48,12 +57,18 @@ export const logBetResult = (client, b) => {
     )],
   };
   safeSend(client, cfg('CH_BET_LOGS'), payload);
+  logEvent('bet', {
+    title: `${game} — ${won ? 'WIN' : pushed ? 'PUSH' : 'LOSS'}`,
+    body: `${b.user || ''} • stake ${fmt(stake)} • payout ${fmt(payout)}`,
+    discordId: b.discordId, amount: net, meta: { game: b.game, result: b.result },
+  });
 };
 
 export const logRound = (client, game, id, info) => {
   const payload = { embeds: [new EmbedBuilder().setColor(Colors.Gold)
     .setTitle(`📦 Round settled: ${game}`).setDescription(`\`${id}\`\n\`\`\`json\n${JSON.stringify(info, null, 2).slice(0, 1800)}\n\`\`\``)] };
   safeSend(client, cfg('CH_ROUND_LOGS'), payload);
+  logEvent('round', { title: `Round settled: ${game}`, body: JSON.stringify(info).slice(0, 1000), meta: { game, id } });
 };
 
 export const logDepositPending = (client, d) => {
@@ -70,6 +85,7 @@ export const logDepositPending = (client, d) => {
       { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
     )] };
   safeSend(client, cfg('CH_DEPOSIT_LOGS'), payload);
+  logEvent('deposit_pending', { title: 'Deposit initiated', body: `${d.username || '—'} • order ${d.order_id}`, discordId: d.discord_id, amount: d.amount });
 };
 
 export const logDeposit = (client, d) => {
@@ -86,6 +102,7 @@ export const logDeposit = (client, d) => {
       { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
     )] };
   safeSend(client, cfg('CH_DEPOSIT_LOGS'), payload);
+  logEvent('deposit', { title: 'Deposit successful', body: `${d.username || '—'} • order ${d.order_id}`, discordId: d.discord_id, amount: d.amount });
 };
 
 export const logPaymentError = (client, e) => {
@@ -93,27 +110,33 @@ export const logPaymentError = (client, e) => {
     .setTitle('⚠️ Payment error').setDescription(`Stage: ${e.stage}\nUser: ${e.user || '—'}\n\`\`\`${JSON.stringify(e.error).slice(0, 1500)}\`\`\``)] };
   safeSend(client, cfg('CH_PAYMENT_ERRORS'), payload);
   mirrorToAudit(client, cfg('CH_PAYMENT_ERRORS'), payload);
+  logEvent('payment_error', { title: `Payment error: ${e.stage}`, body: JSON.stringify(e.error).slice(0, 1000), discordId: e.user || null });
 };
 
 export const logAlert = (client, msg) => {
   const payload = { content: `🚨 ${msg}` };
   safeSend(client, cfg('CH_ALERTS'), payload);
   mirrorToAudit(client, cfg('CH_ALERTS'), payload);
+  logEvent('alert', { title: 'Alert', body: String(msg).slice(0, 1000) });
 };
 
 export const logSuspicious = (client, msg) => {
   const payload = { content: `🕵️ ${msg}` };
   safeSend(client, cfg('CH_SUSPICIOUS'), payload);
   mirrorToAudit(client, cfg('CH_SUSPICIOUS'), payload);
+  logEvent('suspicious', { title: 'Suspicious activity', body: String(msg).slice(0, 1000) });
 };
 
-export const logAuditMsg = (client, msg) =>
+export const logAuditMsg = (client, msg) => {
   safeSend(client, cfg('CH_AUDIT_LOG'), { content: `📝 ${msg}` });
+  logEvent('audit', { title: 'Admin action', body: String(msg).slice(0, 1000) });
+};
 
 export const broadcastBigWin = (client, username, game, payout) => {
   const payload = { content: `🎉 **${username}** just won **${fmt(payout)}** on ${game}!` };
   safeSend(client, cfg('CH_CHAT'), payload);
   mirrorToAudit(client, cfg('CH_CHAT'), payload);
+  logEvent('big_win', { title: `Big win on ${game}`, body: `${username} won ${fmt(payout)}`, amount: payout, meta: { game } });
 };
 
 export async function postWithdrawRequest(client, w) {
@@ -146,6 +169,7 @@ export async function postWithdrawRequest(client, w) {
   );
   const payload = { embeds: [e], components: [row] };
   await safeSend(client, cfg('CH_WITHDRAW_REQUESTS'), payload);
+  logEvent('withdraw_request', { title: 'Withdraw request', body: `${w.username || '—'} • ${isUpi ? 'UPI ' + w.upi_id : 'Bank'}`, discordId: w.discord_id, amount: w.amount, meta: { id: w.id } });
 }
 
 export async function botHeartbeat(client) {

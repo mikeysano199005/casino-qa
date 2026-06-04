@@ -81,6 +81,7 @@ function exportCsv(filename, rows) {
 // ── nav / routing ───────────────────────────────────────────────────────────
 const SECTIONS = [
   { id: 'overview', label: '📊 Overview', group: 'Main' },
+  { id: 'logs', label: '📜 Logs', group: 'Main' },
   { id: 'withdrawals', label: '💸 Withdrawals', group: 'Money' },
   { id: 'deposits', label: '💰 Deposits', group: 'Money' },
   { id: 'transactions', label: '📒 Transactions', group: 'Money' },
@@ -181,6 +182,38 @@ ROUTES.overview = async () => {
     } catch {}
   };
   const iv = setInterval(tick, 5000);
+  cleanup = () => clearInterval(iv);
+};
+
+// ── Logs (unified activity feed) ──────────────────────────────────────────────
+const LOG_KINDS = [
+  ['', 'All'], ['bet', '🎲 Bets'], ['deposit', '💰 Deposits'], ['deposit_pending', '⏳ Deposit pending'],
+  ['withdraw_request', '💸 Withdraw requests'], ['big_win', '🎉 Big wins'], ['audit', '📝 Admin actions'],
+  ['alert', '🚨 Alerts'], ['suspicious', '🕵️ Suspicious'], ['payment_error', '⚠️ Payment errors'], ['round', '📦 Rounds'],
+];
+let logFilter = '';
+ROUTES.logs = async () => {
+  const kindPill = (k) => {
+    const map = { bet: 'blue', deposit: 'green', deposit_pending: 'amber', withdraw_request: 'amber', big_win: 'green', audit: 'grey', alert: 'red', suspicious: 'red', payment_error: 'red', round: 'grey' };
+    return `<span class="pill pill-${map[k] || 'grey'}">${esc(k)}</span>`;
+  };
+  const draw = (rows) => {
+    document.getElementById('logBody').innerHTML = rows.map(l => `<tr>
+      <td class="muted" style="white-space:nowrap">${ago(l.created_at)}</td>
+      <td>${kindPill(l.kind)}</td>
+      <td><b>${esc(l.title || '')}</b>${l.body ? `<div class="muted" style="font-size:12px">${esc(l.body)}</div>` : ''}</td>
+      <td class="muted">${l.discord_id ? esc(l.discord_id) : ''}</td>
+      <td style="text-align:right">${l.amount != null ? fmt(l.amount) : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No events yet</td></tr>';
+  };
+  view.innerHTML = `${header('Activity logs', 'Every event — bets, deposits, withdrawals, admin actions, alerts — saved here so you never depend on Discord channels.')}
+    <div class="toolbar" id="logFilters">${LOG_KINDS.map(([k, label]) => `<button class="btn btn-sm ${k === logFilter ? 'btn-primary' : 'btn-ghost'}" data-k="${k}">${label}</button>`).join('')}
+      <div class="spacer"></div><span class="muted" style="font-size:12px"><span class="dot-live"></span>live</span></div>
+    <div class="card"><div class="table-wrap"><table><thead><tr><th>When</th><th>Type</th><th>Event</th><th>User</th><th>Amount</th></tr></thead><tbody id="logBody"></tbody></table></div></div>`;
+
+  const load = async () => { try { draw(await api('/logs?limit=200' + (logFilter ? '&kind=' + logFilter : ''))); } catch {} };
+  document.querySelectorAll('#logFilters [data-k]').forEach(b => b.onclick = () => { logFilter = b.dataset.k; route(); });
+  await load();
+  const iv = setInterval(load, 6000);
   cleanup = () => clearInterval(iv);
 };
 
