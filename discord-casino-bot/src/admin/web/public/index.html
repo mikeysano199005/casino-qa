@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Casino Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background:#0b0f17; color:#e5e7eb; }
+    .card { background:#131a26; border:1px solid #1f2937; border-radius:.75rem; }
+    .nav-btn { display:block; width:100%; text-align:left; padding:.55rem .75rem; border-radius:.5rem; }
+    .nav-btn.active { background:#1d4ed8; color:#fff; }
+    .nav-btn:not(.active):hover { background:#1f2937; }
+    input,select,textarea { background:#0b0f17; border:1px solid #334155; border-radius:.45rem; padding:.45rem .6rem; color:#e5e7eb; width:100%; }
+    .btn { padding:.45rem .8rem; border-radius:.5rem; font-weight:600; cursor:pointer; }
+    .btn-primary{background:#1d4ed8;color:#fff} .btn-primary:hover{background:#2563eb}
+    .btn-green{background:#15803d;color:#fff} .btn-green:hover{background:#16a34a}
+    .btn-red{background:#b91c1c;color:#fff} .btn-red:hover{background:#dc2626}
+    .btn-ghost{background:#1f2937;color:#e5e7eb} .btn-ghost:hover{background:#374151}
+    table{width:100%;border-collapse:collapse;font-size:.85rem}
+    th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid #1f2937}
+    th{color:#94a3b8;font-weight:600}
+    .pill{padding:.1rem .5rem;border-radius:9999px;font-size:.7rem;font-weight:600}
+    .src-env{background:#374151;color:#cbd5e1} .src-db{background:#15803d;color:#fff}
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="flex">
+    <aside class="w-56 shrink-0 min-h-screen p-4 border-r border-gray-800 bg-[#0d121c]">
+      <div class="text-lg font-bold mb-1">🎰 Casino Admin</div>
+      <div id="who" class="text-xs text-gray-500 mb-4"></div>
+      <nav id="nav" class="space-y-1 text-sm"></nav>
+      <a href="/admin/logout" class="nav-btn text-red-400 mt-6 block">Logout</a>
+    </aside>
+    <main class="flex-1 p-6">
+      <div id="toast" class="fixed top-4 right-4 z-50 space-y-2"></div>
+      <div id="view"></div>
+    </main>
+  </div>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

@@ -1,8 +1,10 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import { q } from './db/index.js';
 import { applyTx, creditReferralBonus } from './repo.js';
 import { logDeposit, logPaymentError } from './admin/logs.js';
 import { buildSign } from './util/watchpay.js';
+import { mountAdminPanel } from './admin/web/index.js';
 import { EmbedBuilder } from 'discord.js';
 
 const WATCHPAY_IP = '18.141.88.123';
@@ -11,6 +13,10 @@ export function startWebhookServer(client) {
   const app = express();
   app.use(express.urlencoded({ extended: true })); // WatchPay POSTs form-encoded data
   app.use(express.json());
+  app.use(cookieParser());
+
+  // Web admin panel (/admin + /api/admin/*), Discord-OAuth gated.
+  mountAdminPanel(app, client);
 
   // Log every incoming request so we can see what WatchPay sends
   app.use((req, _res, next) => {

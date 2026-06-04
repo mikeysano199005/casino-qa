@@ -1,8 +1,9 @@
 // Posts to the configured channel IDs. Designed to never throw upstream.
+// Channel IDs are read through cfg() so the web admin panel can re-route them live.
 import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { fmt } from '../util/money.js';
+import { cfg } from '../config.js';
 
-const env = process.env;
 const safeSend = async (client, channelId, payload) => {
   if (!channelId) return;
   try {
@@ -13,8 +14,9 @@ const safeSend = async (client, channelId, payload) => {
 
 // Mirror payload to CH_AUDIT_LOG unless it's already the target channel.
 const mirrorToAudit = (client, primaryId, payload) => {
-  if (env.CH_AUDIT_LOG && env.CH_AUDIT_LOG !== primaryId)
-    safeSend(client, env.CH_AUDIT_LOG, payload);
+  const auditId = cfg('CH_AUDIT_LOG');
+  if (auditId && auditId !== primaryId)
+    safeSend(client, auditId, payload);
 };
 
 export const logBetResult = (client, b) => {
@@ -45,13 +47,13 @@ export const logBetResult = (client, b) => {
         .setStyle(ButtonStyle.Secondary),
     )],
   };
-  safeSend(client, env.CH_BET_LOGS, payload);
+  safeSend(client, cfg('CH_BET_LOGS'), payload);
 };
 
 export const logRound = (client, game, id, info) => {
   const payload = { embeds: [new EmbedBuilder().setColor(Colors.Gold)
     .setTitle(`📦 Round settled: ${game}`).setDescription(`\`${id}\`\n\`\`\`json\n${JSON.stringify(info, null, 2).slice(0, 1800)}\n\`\`\``)] };
-  safeSend(client, env.CH_ROUND_LOGS, payload);
+  safeSend(client, cfg('CH_ROUND_LOGS'), payload);
 };
 
 export const logDepositPending = (client, d) => {
@@ -67,7 +69,7 @@ export const logDepositPending = (client, d) => {
       { name: '🏷️ Mention',    value: d.discord_id ? `<@${d.discord_id}>` : '—',      inline: true },
       { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
     )] };
-  safeSend(client, env.CH_DEPOSIT_LOGS, payload);
+  safeSend(client, cfg('CH_DEPOSIT_LOGS'), payload);
 };
 
 export const logDeposit = (client, d) => {
@@ -83,35 +85,35 @@ export const logDeposit = (client, d) => {
       { name: '🏷️ Mention',    value: d.discord_id ? `<@${d.discord_id}>` : '—',      inline: true },
       { name: '🔑 Order ID',   value: `\`${d.order_id}\``,                             inline: false },
     )] };
-  safeSend(client, env.CH_DEPOSIT_LOGS, payload);
+  safeSend(client, cfg('CH_DEPOSIT_LOGS'), payload);
 };
 
 export const logPaymentError = (client, e) => {
   const payload = { embeds: [new EmbedBuilder().setColor(Colors.Red)
     .setTitle('⚠️ Payment error').setDescription(`Stage: ${e.stage}\nUser: ${e.user || '—'}\n\`\`\`${JSON.stringify(e.error).slice(0, 1500)}\`\`\``)] };
-  safeSend(client, env.CH_PAYMENT_ERRORS, payload);
-  mirrorToAudit(client, env.CH_PAYMENT_ERRORS, payload);
+  safeSend(client, cfg('CH_PAYMENT_ERRORS'), payload);
+  mirrorToAudit(client, cfg('CH_PAYMENT_ERRORS'), payload);
 };
 
 export const logAlert = (client, msg) => {
   const payload = { content: `🚨 ${msg}` };
-  safeSend(client, env.CH_ALERTS, payload);
-  mirrorToAudit(client, env.CH_ALERTS, payload);
+  safeSend(client, cfg('CH_ALERTS'), payload);
+  mirrorToAudit(client, cfg('CH_ALERTS'), payload);
 };
 
 export const logSuspicious = (client, msg) => {
   const payload = { content: `🕵️ ${msg}` };
-  safeSend(client, env.CH_SUSPICIOUS, payload);
-  mirrorToAudit(client, env.CH_SUSPICIOUS, payload);
+  safeSend(client, cfg('CH_SUSPICIOUS'), payload);
+  mirrorToAudit(client, cfg('CH_SUSPICIOUS'), payload);
 };
 
 export const logAuditMsg = (client, msg) =>
-  safeSend(client, env.CH_AUDIT_LOG, { content: `📝 ${msg}` });
+  safeSend(client, cfg('CH_AUDIT_LOG'), { content: `📝 ${msg}` });
 
 export const broadcastBigWin = (client, username, game, payout) => {
   const payload = { content: `🎉 **${username}** just won **${fmt(payout)}** on ${game}!` };
-  safeSend(client, env.CH_CHAT, payload);
-  mirrorToAudit(client, env.CH_CHAT, payload);
+  safeSend(client, cfg('CH_CHAT'), payload);
+  mirrorToAudit(client, cfg('CH_CHAT'), payload);
 };
 
 export async function postWithdrawRequest(client, w) {
@@ -143,9 +145,9 @@ export async function postWithdrawRequest(client, w) {
     new ButtonBuilder().setCustomId(`wd:reject:${w.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger),
   );
   const payload = { embeds: [e], components: [row] };
-  await safeSend(client, env.CH_WITHDRAW_REQUESTS, payload);
+  await safeSend(client, cfg('CH_WITHDRAW_REQUESTS'), payload);
 }
 
 export async function botHeartbeat(client) {
-  await safeSend(client, env.CH_BOT_STATUS, { content: `✅ Bot online • ${new Date().toISOString()}` });
+  await safeSend(client, cfg('CH_BOT_STATUS'), { content: `✅ Bot online • ${new Date().toISOString()}` });
 }

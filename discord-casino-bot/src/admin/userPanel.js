@@ -3,9 +3,9 @@ import {
   ModalBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, logAudit } from '../repo.js';
 import { fmt } from '../util/money.js';
-import { logAuditMsg } from './logs.js';
+import { cfg } from '../config.js';
+import * as svc from './service.js';
 
 const VIP_NAMES = ['None', '🥉 Bronze', '🥈 Silver', '🥇 Gold', '💎 Platinum'];
 
@@ -151,9 +151,7 @@ async function processCredit(i, userId) {
   if (!Number.isFinite(amount) || amount <= 0)
     return i.reply({ ephemeral: true, content: 'Invalid amount.' });
   const paise = BigInt(Math.round(amount * 100));
-  await applyTx({ userId, type: 'adjust', amount: paise, ref: null, meta: { reason, admin: i.user.id } });
-  await logAudit(i.user.id, 'admin_credit', userId, null, { amount: paise.toString(), reason });
-  logAuditMsg(i.client, `💸 Admin **credit** **${fmt(paise)}** to user \`${userId}\` by <@${i.user.id}> — ${reason}`);
+  await svc.creditUser({ userId, amountPaise: paise, reason, adminId: i.user.id }, i.client);
   return i.reply({ ephemeral: true, content: `✅ Credited **${fmt(paise)}** to user.\nReason: ${reason}` });
 }
 
@@ -180,34 +178,17 @@ async function processDebit(i, userId) {
   if (!Number.isFinite(amount) || amount <= 0)
     return i.reply({ ephemeral: true, content: 'Invalid amount.' });
   const paise = BigInt(Math.round(amount * 100));
-  try {
-    await applyTx({ userId, type: 'adjust', amount: -paise, ref: null, meta: { reason, admin: i.user.id } });
-  } catch {
-    return i.reply({ ephemeral: true, content: '💸 User has insufficient balance for this debit.' });
-  }
-  await logAudit(i.user.id, 'admin_debit', userId, null, { amount: paise.toString(), reason });
-  logAuditMsg(i.client, `📤 Admin **debit** **${fmt(paise)}** from user \`${userId}\` by <@${i.user.id}> — ${reason}`);
+  const r = await svc.debitUser({ userId, amountPaise: paise, reason, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: '💸 User has insufficient balance for this debit.' });
   return i.reply({ ephemeral: true, content: `✅ Debited **${fmt(paise)}** from user.\nReason: ${reason}` });
 }
 
 // ─── Ban / Unban ─────────────────────────────────────────────────────
 
 async function toggleBan(i, userId) {
-  const { rows } = await q(`SELECT status, discord_id FROM users WHERE id = $1`, [userId]);
-  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
-  const newStatus = rows[0].status === 'banned' ? 'active' : 'banned';
-  await q(`UPDATE users SET status = $1 WHERE id = $2`, [newStatus, userId]);
-  await logAudit(i.user.id, newStatus === 'banned' ? 'admin_ban' : 'admin_unban', userId,
-    { status: rows[0].status }, { status: newStatus });
-  logAuditMsg(i.client, `${newStatus === 'banned' ? '🚫 **Banned**' : '✅ **Unbanned**'} user \`${userId}\` (<@${rows[0].discord_id}>) by <@${i.user.id}>`);
-  await i.reply({ ephemeral: true, content: `User is now **${newStatus}**.` });
-  try {
-    const dUser = await i.client.users.fetch(rows[0].discord_id);
-    await dUser.send(newStatus === 'banned'
-      ? '🚫 Your account has been suspended. Contact support if you believe this is a mistake.'
-      : '✅ Your account has been reinstated. You may now play again.'
-    );
-  } catch {}
+  const r = await svc.toggleBan({ userId, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: 'User not found.' });
+  await i.reply({ ephemeral: true, content: `User is now **${r.status}**.` });
 }
 
 // ─── User Preset ─────────────────────────────────────────────────────
@@ -249,15 +230,12 @@ async function showUserPresetMenu(i, userId) {
 }
 
 async function applyUserPreset(i, userId, preset) {
-  const isClear = preset === 'clear';
-  await q(`UPDATE users SET user_preset = $1 WHERE id = $2`, [isClear ? null : preset, userId]);
-  const { rows } = await q(`SELECT username FROM users WHERE id = $1`, [userId]);
-  await logAudit(i.user.id, 'admin_set_user_preset', userId, null, { preset: isClear ? null : preset });
-  logAuditMsg(i.client, `🎯 User preset for **${rows[0]?.username}** set to **${isClear ? 'cleared' : preset}** by <@${i.user.id}>`);
+  const r = await svc.setUserPreset({ userId, preset, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: '❌ Invalid preset.' });
   await i.reply({ ephemeral: true,
-    content: isClear
-      ? `✅ User preset cleared for **${rows[0]?.username}** — they will use game defaults.`
-      : `✅ **${rows[0]?.username}** is now locked to **${preset}** preset.`,
+    content: r.preset === null
+      ? `✅ User preset cleared for **${r.username}** — they will use game defaults.`
+      : `✅ **${r.username}** is now locked to **${r.preset}** preset.`,
   });
 }
 
@@ -337,44 +315,32 @@ function openSetCooldownModal(i, userId) {
     new TextInputBuilder().setCustomId('hours')
       .setLabel('Cooldown hours (0 = no cooldown, blank = global default)')
       .setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(5)
-      .setPlaceholder(`Global default: ${process.env.WITHDRAW_COOLDOWN_HOURS || 48}h`)
+      .setPlaceholder(`Global default: ${cfg('WITHDRAW_COOLDOWN_HOURS') || 48}h`)
   ));
   return i.showModal(m);
 }
 
 async function processSetCooldown(i, userId) {
   const raw = i.fields.getTextInputValue('hours').trim();
-  const { rows } = await q(`SELECT username, discord_id FROM users WHERE id = $1`, [userId]);
-  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
-
-  if (raw === '') {
-    await q(`UPDATE users SET withdraw_cooldown_hours = NULL WHERE id = $1`, [userId]);
-    await logAudit(i.user.id, 'admin_cooldown_override', userId, null, { hours: null });
-    logAuditMsg(i.client, `⏱️ Withdraw cooldown for **${rows[0].username}** reset to global default by <@${i.user.id}>`);
-    return i.reply({ ephemeral: true, content: `✅ Cooldown for **${rows[0].username}** reset to global default.` });
+  const r = await svc.setCooldown({ userId, hours: raw === '' ? null : raw, adminId: i.user.id }, i.client);
+  if (!r.ok) {
+    if (r.error === 'invalid_hours')
+      return i.reply({ ephemeral: true, content: 'Enter a valid number of hours (0 or more), or leave blank to use global default.' });
+    return i.reply({ ephemeral: true, content: 'User not found.' });
   }
-
-  const hours = Number(raw);
-  if (!Number.isFinite(hours) || hours < 0)
-    return i.reply({ ephemeral: true, content: 'Enter a valid number of hours (0 or more), or leave blank to use global default.' });
-
-  await q(`UPDATE users SET withdraw_cooldown_hours = $1 WHERE id = $2`, [hours, userId]);
-  await logAudit(i.user.id, 'admin_cooldown_override', userId, null, { hours });
-  logAuditMsg(i.client, `⏱️ Withdraw cooldown for **${rows[0].username}** set to **${hours}h** by <@${i.user.id}>`);
+  if (r.hours === null)
+    return i.reply({ ephemeral: true, content: `✅ Cooldown for **${r.username}** reset to global default.` });
   return i.reply({ ephemeral: true,
-    content: hours === 0
-      ? `✅ **${rows[0].username}** can now withdraw with **no cooldown**.`
-      : `✅ **${rows[0].username}** will have a **${hours}h** cooldown after each withdrawal.`,
+    content: r.hours === 0
+      ? `✅ **${r.username}** can now withdraw with **no cooldown**.`
+      : `✅ **${r.username}** will have a **${r.hours}h** cooldown after each withdrawal.`,
   });
 }
 
 async function resetCooldown(i, userId) {
-  const { rows } = await q(`SELECT username, discord_id FROM users WHERE id = $1`, [userId]);
-  if (!rows[0]) return i.reply({ ephemeral: true, content: 'User not found.' });
-  await q(`UPDATE users SET withdraw_cooldown_until = NULL WHERE id = $1`, [userId]);
-  await logAudit(i.user.id, 'admin_reset_cooldown', userId, null, {});
-  logAuditMsg(i.client, `🔓 Active withdraw cooldown cleared for **${rows[0].username}** by <@${i.user.id}>`);
-  return i.reply({ ephemeral: true, content: `✅ Cooldown cleared — **${rows[0].username}** can withdraw immediately.` });
+  const r = await svc.resetCooldown({ userId, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: 'User not found.' });
+  return i.reply({ ephemeral: true, content: `✅ Cooldown cleared — **${r.username}** can withdraw immediately.` });
 }
 
 // ─── VIP tier ────────────────────────────────────────────────────────
@@ -390,9 +356,6 @@ function openVipModal(i, userId) {
 }
 
 async function processVip(i, userId) {
-  const tier = Math.min(4, Math.max(0, Math.floor(Number(i.fields.getTextInputValue('tier')))));
-  await q(`UPDATE users SET vip_tier = $1 WHERE id = $2`, [tier, userId]);
-  await logAudit(i.user.id, 'admin_set_vip', userId, null, { vip_tier: tier });
-  logAuditMsg(i.client, `⭐ VIP tier for user \`${userId}\` set to **${VIP_NAMES[tier]}** by <@${i.user.id}>`);
-  return i.reply({ ephemeral: true, content: `✅ VIP tier set to **${VIP_NAMES[tier]}**.` });
+  const r = await svc.setVip({ userId, tier: i.fields.getTextInputValue('tier'), adminId: i.user.id }, i.client);
+  return i.reply({ ephemeral: true, content: `✅ VIP tier set to **${r.label}**.` });
 }

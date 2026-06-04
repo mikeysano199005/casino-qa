@@ -1,11 +1,9 @@
 import { EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { q } from '../db/index.js';
-import { applyTx, logAudit } from '../repo.js';
 import { fmt } from '../util/money.js';
-import { logAuditMsg } from './logs.js';
 import { handleUserPanelInteraction } from './userPanel.js';
-import { togglePrediction, getPredictionState } from '../games/matka.js';
-import { invalidateAmountPreset } from '../util/amountPreset.js';
+import { togglePrediction } from '../games/matka.js';
+import * as svc from './service.js';
 
 const adminIds = () => (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = (id) => adminIds().includes(id);
@@ -57,24 +55,9 @@ export async function handleAdminInteraction(i) {
 }
 
 async function approveWithdraw(i, wid) {
-  const { rows } = await q(`SELECT * FROM withdrawals WHERE id=$1`, [wid]);
-  const w = rows[0];
-  if (!w || w.status !== 'pending') return i.reply({ ephemeral: true, content: 'Already settled.' });
-  // burn the locked funds (paid out manually offline)
-  await applyTx({
-    userId: w.user_id, type: 'withdraw', amount: -BigInt(w.amount), lockDelta: -BigInt(w.amount),
-    ref: w.id, meta: { method: w.upi_id ? 'upi' : 'bank' },
-  });
-  await q(`UPDATE withdrawals SET status='paid', admin_id=$1, settled_at=now() WHERE id=$2`, [i.user.id, wid]);
-  await logAudit(i.user.id, 'withdraw_approved', wid, null, { amount: w.amount });
+  const r = await svc.approveWithdrawal({ wid, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: r.error === 'not_found' ? 'Not found.' : 'Already settled.' });
   await i.update({ components: [], embeds: [...i.message.embeds.map(e => EmbedBuilder.from(e).setColor(Colors.Green).setTitle('✅ Approved'))] });
-  const histChan = i.client.channels.cache.get(process.env.CH_WITHDRAW_HISTORY);
-  if (histChan) histChan.send(`✅ Approved withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}>`);
-  try {
-    const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
-    const u = await i.client.users.fetch(discordRow.discord_id);
-    u.send(`✅ Your withdraw of ${fmt(BigInt(w.amount))} has been approved and paid out.`);
-  } catch {}
 }
 
 function openRejectModal(i, wid) {
@@ -86,23 +69,9 @@ function openRejectModal(i, wid) {
 }
 
 async function rejectWithdraw(i, wid, note) {
-  const { rows } = await q(`SELECT * FROM withdrawals WHERE id=$1`, [wid]);
-  const w = rows[0];
-  if (!w || w.status !== 'pending') return i.reply({ ephemeral: true, content: 'Already settled.' });
-  // refund: release lock back to available
-  await applyTx({ userId: w.user_id, type: 'refund', amount: 0n,
-    lockDelta: -BigInt(w.amount), ref: w.id, meta: { kind: 'withdraw_reject', note } });
-  await q(`UPDATE withdrawals SET status='rejected', admin_id=$1, admin_note=$2, settled_at=now() WHERE id=$3`,
-    [i.user.id, note, wid]);
-  await logAudit(i.user.id, 'withdraw_rejected', wid, null, { amount: w.amount, note });
+  const r = await svc.rejectWithdrawal({ wid, adminId: i.user.id, note }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: r.error === 'not_found' ? 'Not found.' : 'Already settled.' });
   await i.reply({ ephemeral: true, content: 'Rejected and refunded.' });
-  const histChan = i.client.channels.cache.get(process.env.CH_WITHDRAW_HISTORY);
-  if (histChan) histChan.send(`❌ Rejected withdraw **${fmt(BigInt(w.amount))}** by <@${i.user.id}> — ${note}`);
-  try {
-    const discordRow = (await q(`SELECT discord_id FROM users WHERE id=$1`, [w.user_id])).rows[0];
-    const u = await i.client.users.fetch(discordRow.discord_id);
-    u.send(`❌ Your withdraw was rejected: ${note}\nFunds returned to wallet.`);
-  } catch {}
 }
 
 export async function postAdminPanel(channel) {
@@ -153,16 +122,8 @@ async function openPresetMenu(i) {
 }
 
 async function setPreset(i, scope, mode) {
-  const { rows: prev } = await q(`SELECT mode FROM presets WHERE scope=$1`, [scope]);
-  await q(
-    `INSERT INTO presets(scope,mode,updated_by) VALUES($1,$2,$3)
-     ON CONFLICT(scope) DO UPDATE SET mode=EXCLUDED.mode, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-    [scope, mode, i.user.id]
-  );
-  await q(`INSERT INTO preset_history(scope,old_mode,new_mode,changed_by) VALUES($1,$2,$3,$4)`,
-    [scope, prev[0]?.mode || null, mode, i.user.id]);
-  await logAudit(i.user.id, 'preset_change', scope, prev[0] || null, { mode });
-  logAuditMsg(i.client, `Preset **${scope}** → **${mode}** by <@${i.user.id}>`);
+  const r = await svc.setPreset({ scope, mode, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: '❌ Invalid preset mode.' });
   await i.reply({ ephemeral: true, content: `✅ ${scope} → ${mode}` });
 }
 
@@ -261,36 +222,24 @@ function openPromoModal(i) {
 async function createPromo(i) {
   try {
     await i.deferReply({ ephemeral: true });
-
-    const code       = i.fields.getTextInputValue('code').trim().toUpperCase();
-    const amount     = Number(i.fields.getTextInputValue('amount'));
-    const wager      = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('wager')) || 5));
-    const maxuses    = Math.max(1, Math.floor(Number(i.fields.getTextInputValue('maxuses')) || 100));
-    const expiryDays = i.fields.getTextInputValue('expiry')?.trim();
-    const expiresAt  = expiryDays ? new Date(Date.now() + Number(expiryDays) * 86400_000) : null;
-
-    if (!code || !Number.isFinite(amount) || amount <= 0)
-      return i.editReply({ content: 'Invalid code or amount.' });
-
-    const bonus = BigInt(Math.round(amount * 100));
-
-    await q(
-      `INSERT INTO promo_codes(code, bonus_amount, wager_mult, max_uses, expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [code, String(bonus), Number(wager), Number(maxuses), expiresAt, String(i.user.id)]
-    ).catch(e => {
-      if (e.message.includes('unique')) throw Object.assign(new Error(`Code \`${code}\` already exists.`), { friendly: true });
-      throw e;
+    const r = await svc.createPromo({
+      code:       i.fields.getTextInputValue('code'),
+      amountRupees: i.fields.getTextInputValue('amount'),
+      wager:      i.fields.getTextInputValue('wager'),
+      maxuses:    i.fields.getTextInputValue('maxuses'),
+      expiryDays: i.fields.getTextInputValue('expiry')?.trim(),
+      adminId:    i.user.id,
     });
-
-    await logAudit(i.user.id, 'promo_created', code, null, { bonus: String(bonus), wager, maxuses }).catch(() => {});
-
+    if (!r.ok) {
+      const msg = r.error === 'duplicate' ? 'That code already exists.' : 'Invalid code or amount.';
+      return i.editReply({ content: `❌ ${msg}` });
+    }
     return i.editReply({
-      content: `✅ Promo \`${code}\` created — **${fmt(bonus)}** bonus • ${wager}× wager • ${maxuses} uses${expiresAt ? ` • expires <t:${Math.floor(expiresAt.getTime()/1000)}:R>` : ''}`
+      content: `✅ Promo \`${r.code}\` created — **${fmt(BigInt(r.bonus))}** bonus • ${r.wager}× wager • ${r.maxuses} uses${r.expiresAt ? ` • expires <t:${Math.floor(r.expiresAt.getTime()/1000)}:R>` : ''}`
     });
   } catch (e) {
     console.error('[createPromo]', e);
-    const msg = e.friendly ? e.message : `❌ Error: ${e.message?.slice(0, 200) ?? 'unknown'}`;
+    const msg = `❌ Error: ${e.message?.slice(0, 200) ?? 'unknown'}`;
     try {
       if (i.deferred) await i.editReply({ content: msg });
       else await i.reply({ ephemeral: true, content: msg });
@@ -299,8 +248,7 @@ async function createPromo(i) {
 }
 
 async function deletePromo(i, promoId) {
-  await q(`UPDATE promo_codes SET active = FALSE WHERE id = $1`, [promoId]);
-  await logAudit(i.user.id, 'promo_deactivated', promoId, null, {});
+  await svc.deactivatePromo({ promoId, adminId: i.user.id });
   return i.reply({ ephemeral: true, content: '✅ Promo code deactivated.' });
 }
 
@@ -360,33 +308,22 @@ function openHardLimitModal(i) {
   return i.showModal(m);
 }
 
-const VALID_PRESETS = new Set(['house', 'low', 'medium', 'high', 'extreme', 'prediction']);
-
 async function saveMediumLimit(i) {
   const preset = i.fields.getTextInputValue('preset').trim().toLowerCase();
-  if (!VALID_PRESETS.has(preset)) return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
-  await q(`UPDATE amount_preset_config SET medium_preset=$1, updated_by=$2, updated_at=now() WHERE id=1`, [preset, i.user.id]);
-  invalidateAmountPreset();
-  logAuditMsg(i.client, `💵 Amount preset Medium → **${preset}** by <@${i.user.id}>`);
+  const r = await svc.setAmountLimit({ tier: 'medium', preset, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...svc.VALID_PRESETS].join(', ')}` });
   await i.reply({ ephemeral: true, content: `✅ Medium tier → **${preset}** preset` });
 }
 
 async function saveHardLimit(i) {
   const rs     = Number(i.fields.getTextInputValue('amount'));
   const preset = i.fields.getTextInputValue('preset').trim().toLowerCase();
-  if (!Number.isFinite(rs) || rs <= 0)  return i.reply({ ephemeral: true, content: '❌ Invalid amount.' });
-  if (!VALID_PRESETS.has(preset))        return i.reply({ ephemeral: true, content: `❌ Invalid preset. Use: ${[...VALID_PRESETS].join(', ')}` });
-  const paise = Math.round(rs * 100);
-  await q(`UPDATE amount_preset_config SET hard_min=$1, hard_preset=$2, updated_by=$3, updated_at=now() WHERE id=1`, [paise, preset, i.user.id]);
-  invalidateAmountPreset();
-  logAuditMsg(i.client, `💵 Amount preset Hard (> ₹${rs}) → **${preset}** by <@${i.user.id}>`);
+  const r = await svc.setAmountLimit({ tier: 'hard', preset, amountRupees: rs, adminId: i.user.id }, i.client);
+  if (!r.ok) return i.reply({ ephemeral: true, content: r.error === 'invalid_amount' ? '❌ Invalid amount.' : `❌ Invalid preset. Use: ${[...svc.VALID_PRESETS].join(', ')}` });
   await i.reply({ ephemeral: true, content: `✅ Hard: bets **> ₹${rs}** → **${preset}** preset` });
 }
 
 async function toggleAmountPresets(i) {
-  const { rows } = await q(`UPDATE amount_preset_config SET enabled = NOT enabled, updated_by=$1, updated_at=now() WHERE id=1 RETURNING enabled`, [i.user.id]);
-  const enabled = rows[0]?.enabled ?? false;
-  invalidateAmountPreset();
-  logAuditMsg(i.client, `💵 Amount-based presets toggled **${enabled ? 'ON ✅' : 'OFF ❌'}** by <@${i.user.id}>`);
-  await i.reply({ ephemeral: true, content: `💵 Amount-based presets are now **${enabled ? 'ON ✅' : 'OFF ❌'}**` });
+  const r = await svc.toggleAmountPresets({ adminId: i.user.id }, i.client);
+  await i.reply({ ephemeral: true, content: `💵 Amount-based presets are now **${r.enabled ? 'ON ✅' : 'OFF ❌'}**` });
 }

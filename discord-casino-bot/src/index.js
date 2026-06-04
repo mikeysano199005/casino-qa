@@ -19,14 +19,16 @@ import * as matka   from './games/matka.js';
 import * as ipl     from './games/ipl.js';
 import * as colour  from './games/colour.js';
 import * as crash   from './games/crash.js';
-import { handleAdminInteraction, postAdminPanel } from './admin/adminPanel.js';
-import { handleSlotsAdminInteraction, postSlotsAdminPanel } from './admin/slotsAdmin.js';
+import { handleAdminInteraction } from './admin/adminPanel.js';
+import { handleSlotsAdminInteraction } from './admin/slotsAdmin.js';
 import { handleIplAdmin } from './admin/iplAdmin.js';
 import { botHeartbeat } from './admin/logs.js';
 import { startLiveDashboard } from './admin/liveDashboard.js';
 import { startWebhookServer } from './watchpay.js';
 import { checkAndSendWelcome, checkAndSendWelcomeBack } from './util/welcome.js';
 import { startSlotsPredictionPoller } from './util/predictionDelivery.js';
+import { loadSettings, cfg } from './config.js';
+import { postStaticPanels } from './panels.js';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
@@ -89,6 +91,9 @@ client.on(Events.InteractionCreate, async (i) => {
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
+  // Load DB-backed settings (channel IDs + config) so cfg() overrides env.
+  await loadSettings();
+
   // Register /pay slash command on the main guild (instant update, no 1-hour delay)
   try {
     const rest = new REST().setToken(process.env.DISCORD_TOKEN);
@@ -116,40 +121,18 @@ client.once(Events.ClientReady, async () => {
     }
   } catch (e) { console.warn('[startup] stale session cleanup:', e.message); }
 
-  // post panels in main channels (idempotent: posts once on each boot)
-  const safePanel = async (id, fn) => {
-    if (!id) return;
-    try {
-      const ch = await client.channels.fetch(id);
-      // Delete previous bot messages in this channel before reposting panel
-      const msgs = await ch.messages.fetch({ limit: 50 });
-      const botMsgs = msgs.filter(m => m.author.id === client.user.id);
-      for (const msg of botMsgs.values()) await msg.delete().catch(() => {});
-      await fn(ch);
-    } catch (e) { console.warn('panel', id, e.message); }
-  };
-  await safePanel(process.env.CH_PLAY,    play.postPanel);
-  await safePanel(process.env.CH_WALLET,  wallet.postPanel);
-  await safePanel(process.env.CH_ACCOUNT, account.postPanel);
-  await safePanel(process.env.CH_SUPPORT, support.postPanel);
+  // post static panels in main channels (idempotent: posts once on each boot)
+  await postStaticPanels(client);
 
-  // Each game gets its own channel; falls back to CH_PLAY if not set
-  const ch = (key) => process.env[key] || process.env.CH_PLAY;
-  await safePanel(ch('CH_MINES'),     mines.postPanel);
-  await safePanel(ch('CH_DICE'),      dice.postPanel);
-  await safePanel(ch('CH_BLACKJACK'), bj.postPanel);
-  await safePanel(ch('CH_SLOTS'),     slots.postPanel);
-
+  // Each game loop gets its own channel; falls back to CH_PLAY if not set.
+  const ch = (key) => cfg(key) || cfg('CH_PLAY');
   if (ch('CH_COLOUR')) startColourLoop(client, ch('CH_COLOUR')).catch(console.error);
   if (ch('CH_CRASH'))  startCrashLoop(client,  ch('CH_CRASH')).catch(console.error);
-  if (process.env.CH_MATKA) startMatkaLoop(client, process.env.CH_MATKA).catch(console.error);
-  if (process.env.CH_IPL)   startIplLoop(client);
+  if (cfg('CH_MATKA')) startMatkaLoop(client, cfg('CH_MATKA')).catch(console.error);
+  if (cfg('CH_IPL'))   startIplLoop(client);
 
-  await safePanel(process.env.CH_ADMIN_PANEL, postAdminPanel);
-  await safePanel('1503762578357223629', postSlotsAdminPanel);
-
-  if (process.env.CH_LIVE_DASHBOARD)
-    startLiveDashboard(client, process.env.CH_LIVE_DASHBOARD).catch(console.error);
+  if (cfg('CH_LIVE_DASHBOARD'))
+    startLiveDashboard(client, cfg('CH_LIVE_DASHBOARD')).catch(console.error);
 
   startSlotsPredictionPoller(client);
 
