@@ -48,8 +48,7 @@ export function addSubscriber(res, userId) {
   // immediate snapshot
   sse(res, 'state', publicState());
   sse(res, 'bets', publicBets());
-  const mine = state?.bets.get(userId);
-  sse(res, 'you', { bet: mine ? betView(mine) : null });
+  sendYou(userId);
   return () => subscribers.delete(sub);
 }
 export function subscriberCount() { return subscribers.size; }
@@ -75,8 +74,13 @@ function makeFillerBets() {
   }
   return out;
 }
-const betView = (b) => ({ stake: b.stake.toString(), cashedOut: !!b.cashedOut, cashOutAt: b.cashOutAt || null,
-  payout: b.cashedOut ? Math.floor(Number(b.stake) * b.cashOutAt).toString() : null });
+const betView = (b) => b ? ({ stake: b.stake.toString(), slot: b.slot, auto: b.auto || null, cashedOut: !!b.cashedOut, cashOutAt: b.cashOutAt || null,
+  payout: b.cashedOut ? Math.floor(Number(b.stake) * b.cashOutAt).toString() : null }) : null;
+
+// Send a user their own two bet slots (keys `${userId}:0` and `:1`).
+function sendYou(userId) {
+  toUser(userId, 'you', { bets: { 0: betView(state?.bets.get(`${userId}:0`)), 1: betView(state?.bets.get(`${userId}:1`)) } });
+}
 
 function publicState() {
   if (!state) return { phase: 'waiting', serverTime: Date.now(), history: history.slice(0, 30), viewers: subscriberCount() };
@@ -191,6 +195,19 @@ async function tick() {
       setTimeout(() => { openRound().catch(e => console.error('[web crash] openRound', e.message)); }, CRASHED_MS);
       state.crashedAt = now;
     } else {
+      // Auto-cashout: settle any real bet whose target the multiplier just crossed.
+      for (const bet of state.bets.values()) {
+        if (!bet.cashedOut && bet.auto && mult >= bet.auto && bet.auto < state.crashAt) {
+          try {
+            const r = await settleCashout(bet, bet.auto);
+            const w = await getWallet(bet.userId);
+            toUser(bet.userId, 'wallet', { balance: w.available.toString() });
+            sendYou(bet.userId);
+            broadcast('bets', publicBets());
+            r; // settled
+          } catch (e) { console.warn('[web crash] auto-cashout:', e.message); }
+        }
+      }
       // Animate ambient filler cash-outs as the multiplier climbs.
       let changed = false;
       for (const f of state.filler) {
@@ -217,19 +234,37 @@ export function startEngine(discordClient) {
 }
 
 // ── player actions ───────────────────────────────────────────────────────────
-export async function placeBet(discordId, username, amountRupees) {
+const slotKey = (userId, slot) => `${userId}:${slot === 1 ? 1 : 0}`;
+
+// Settle one bet as a win at a given multiplier. Shared by manual + auto cashout.
+async function settleCashout(bet, atMult) {
+  const cashOutAt = Math.max(1, Math.floor(atMult * 100) / 100);
+  bet.cashedOut = true;
+  bet.cashOutAt = cashOutAt;
+  const payout = BigInt(Math.floor(Number(bet.stake) * cashOutAt));
+  await applyTx({ userId: bet.userId, type: 'win', amount: payout, lockDelta: -bet.stake,
+    ref: state.round.id, meta: { game: 'crash', web: true, cashOutAt } });
+  if (bet.betId) await q(`UPDATE bets SET payout=$1, result='win', settled_at=now() WHERE id=$2`, [payout.toString(), bet.betId]);
+  logBetResult(client, { user: bet.username, discordId: bet.discordId, game: 'crash', stake: bet.stake.toString(), payout: payout.toString(), result: 'win' });
+  if (payout >= toPaise(Number(cfg('BIG_WIN_BROADCAST') || 5000))) broadcastBigWin(client, bet.username, 'Aviator', payout).catch(() => {});
+  return { cashOutAt, payout };
+}
+
+export async function placeBet(discordId, username, amountRupees, slot = 0, auto = null) {
   if (cfg('MAINTENANCE_MODE') === 'true') return { ok: false, error: 'maintenance' };
   if (!state || state.phase !== 'betting') return { ok: false, error: 'betting_closed' };
 
   const min = Number(cfg('MIN_BET') || 1), max = Number(cfg('MAX_BET') || 10000);
   const amount = Number(amountRupees);
   if (!Number.isFinite(amount) || amount < min || amount > max) return { ok: false, error: `bet_range_${min}_${max}` };
+  const autoAt = auto != null && Number.isFinite(Number(auto)) && Number(auto) > 1 ? Math.round(Number(auto) * 100) / 100 : null;
 
   let u;
   try { u = await requireActive(discordId, username); }
   catch { return { ok: false, error: 'account_suspended' }; }
 
-  if (state.bets.has(u.id)) return { ok: false, error: 'already_bet' };
+  const key = slotKey(u.id, slot);
+  if (state.bets.has(key)) return { ok: false, error: 'already_bet' };
 
   const stake = toPaise(amount);
   try {
@@ -244,47 +279,32 @@ export async function placeBet(discordId, username, amountRupees) {
       [u.id, state.round.id, stake.toString(), {}]).catch(() => ({ rows: [{}] }));
     betId = rows[0]?.id || null;
   }
-  const bet = { userId: u.id, discordId, username, stake, betId, cashedOut: false, cashOutAt: null };
-  state.bets.set(u.id, bet);
+  const bet = { userId: u.id, discordId, username, stake, betId, slot: slot === 1 ? 1 : 0, auto: autoAt, cashedOut: false, cashOutAt: null };
+  state.bets.set(key, bet);
 
   broadcast('bets', publicBets());
   const w = await getWallet(u.id);
-  toUser(u.id, 'you', { bet: betView(bet) });
+  sendYou(u.id);
   return { ok: true, balance: w.available.toString(), bet: betView(bet) };
 }
 
-export async function cashOut(discordId, username) {
+export async function cashOut(discordId, username, slot = 0) {
   if (!state) return { ok: false, error: 'no_round' };
   let u;
   try { u = await requireActive(discordId, username); } catch { return { ok: false, error: 'account_suspended' }; }
-  const bet = state.bets.get(u.id);
+  const bet = state.bets.get(slotKey(u.id, slot));
   if (!bet) return { ok: false, error: 'no_bet' };
   if (bet.cashedOut) return { ok: false, error: 'already_cashed' };
   if (state.phase !== 'flying') return { ok: false, error: 'not_flying' };
 
-  // Authoritative multiplier = server clock at receipt, clamped below crashAt.
   const mult = multiplierAt(Date.now() - state.startedAt);
   if (mult >= state.crashAt) return { ok: false, error: 'crashed' };
-  const cashOutAt = Math.max(1, Math.floor(mult * 100) / 100);
-  bet.cashedOut = true;
-  bet.cashOutAt = cashOutAt;
-
-  const payout = BigInt(Math.floor(Number(bet.stake) * cashOutAt));
-  try {
-    await applyTx({ userId: u.id, type: 'win', amount: payout, lockDelta: -bet.stake,
-      ref: state.round.id, meta: { game: 'crash', web: true, cashOutAt } });
-    if (bet.betId) await q(`UPDATE bets SET payout=$1, result='win', settled_at=now() WHERE id=$2`, [payout.toString(), bet.betId]);
-    logBetResult(client, { user: username, discordId, game: 'crash',
-      stake: bet.stake.toString(), payout: payout.toString(), result: 'win' });
-    if (payout >= toPaise(Number(cfg('BIG_WIN_BROADCAST') || 5000)))
-      broadcastBigWin(client, username, 'Aviator', payout).catch(() => {});
-  } catch (e) {
-    console.warn('[web crash] cashout settle error:', e.message);
-    return { ok: false, error: 'settle_failed' };
-  }
+  let r;
+  try { r = await settleCashout(bet, mult); }
+  catch (e) { console.warn('[web crash] cashout settle error:', e.message); return { ok: false, error: 'settle_failed' }; }
 
   broadcast('bets', publicBets());
   const w = await getWallet(u.id);
-  toUser(u.id, 'you', { bet: betView(bet) });
-  return { ok: true, payout: payout.toString(), multiplier: cashOutAt, balance: w.available.toString() };
+  sendYou(u.id);
+  return { ok: true, payout: r.payout.toString(), multiplier: r.cashOutAt, balance: w.available.toString() };
 }

@@ -4,6 +4,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jwt from 'jsonwebtoken';
+import { q } from '../db/index.js';
 import { upsertUser, getWallet } from '../repo.js';
 import { startEngine, addSubscriber, placeBet, cashOut, subscriberCount } from './crashEngine.js';
 import { mountAccountApi } from './accountApi.js';
@@ -91,13 +92,22 @@ export function mountPlay(app, client) {
   });
 
   app.post('/api/play/bet', requirePlay, async (req, res) => {
-    const out = await placeBet(req.player.discordId, req.player.name, req.body?.amount);
+    const out = await placeBet(req.player.discordId, req.player.name, req.body?.amount, req.body?.slot, req.body?.auto);
     res.status(out.ok ? 200 : 400).json(out);
   });
 
   app.post('/api/play/cashout', requirePlay, async (req, res) => {
-    const out = await cashOut(req.player.discordId, req.player.name);
+    const out = await cashOut(req.player.discordId, req.player.name, req.body?.slot);
     res.status(out.ok ? 200 : 400).json(out);
+  });
+
+  // Provably-fair: seed hash (always) + revealed seed/outcome once the round ended.
+  app.get('/api/play/round/:id', requirePlay, async (req, res) => {
+    try {
+      const { rows } = await q(`SELECT id, game, server_seed_hash, server_seed, client_seed, outcome, ended_at FROM game_rounds WHERE id=$1`, [req.params.id]);
+      if (!rows[0]) return res.status(404).json({ error: 'not_found' });
+      res.json(rows[0]);
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Wallet (deposit/withdraw) + account (profile/history/daily/redeem/referral).

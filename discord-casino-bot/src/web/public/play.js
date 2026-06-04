@@ -16,7 +16,7 @@ let phase = 'waiting';
 let startTime = null;                // server ms when flight started
 let bettingEndsAt = null;
 let crashAt = null;                  // revealed only on crash
-let myBet = null;                    // { stake, cashedOut, cashOutAt, payout }
+const myBets = { 0: null, 1: null }; // per-slot bet { stake, slot, auto, cashedOut, cashOutAt, payout }
 let betVal = 10;                     // rupees in panel 0
 const GROWTH = 1.12;                 // multiplier growth per second (must match the server engine)
 let lastProgress = 0.5;              // plane position at the moment of crash
@@ -89,9 +89,10 @@ function connect() {
     crashAt = d.crashAt;
     if (d.history) renderHistory(d.history);
     if (d.viewers != null) $('#viewerCount').textContent = d.viewers;
+    if (d.roundId && d.roundId !== currentRoundId) { lastRoundId = currentRoundId; currentRoundId = d.roundId; }
 
     if (phase === 'betting' && prevPhase !== 'betting') {
-      myBet = null;
+      myBets[0] = null; myBets[1] = null;
       $('#flewAway').classList.add('hidden');
       $('#multiplier').classList.add('hidden');
     }
@@ -99,13 +100,14 @@ function connect() {
       $('#flewAway').classList.add('hidden');
       $('#multiplier').classList.remove('hidden');
     }
-    if (phase === 'crashed') {
+    if (phase === 'crashed' && prevPhase !== 'crashed') {
       $('#crashMult').textContent = (crashAt || 0).toFixed(2) + 'x';
       $('#flewAway').classList.remove('hidden');
       $('#multiplier').classList.add('hidden');
+      sfx('crash');
       refreshBalance(); // reflect any loss
     }
-    updateAction();
+    updateAllActions();
   });
   es.addEventListener('sync', (e) => {
     const d = JSON.parse(e.data);
@@ -121,7 +123,7 @@ function connect() {
     }
   });
   es.addEventListener('bets', (e) => renderBets(JSON.parse(e.data)));
-  es.addEventListener('you', (e) => { myBet = JSON.parse(e.data).bet; updateAction(); });
+  es.addEventListener('you', (e) => { const b = JSON.parse(e.data).bets || {}; myBets[0] = b[0] || null; myBets[1] = b[1] || null; updateAllActions(); });
   es.onerror = () => {/* browser auto-reconnects */};
 }
 
@@ -262,8 +264,10 @@ function frame() {
     const tip = drawCurve(progress, false);
     drawPlane(tip.x, tip.y, false, planeAngle(progress));
     $('#multiplier').textContent = mult.toFixed(2) + 'x';
-    if (myBet && !myBet.cashedOut)
-      $('#p0sub').textContent = fmt(Math.floor(Number(myBet.stake) * mult)) + ' @ ' + mult.toFixed(2) + 'x';
+    for (const p of panels) {
+      const bet = myBets[p.slot];
+      if (bet && !bet.cashedOut) p.sub.textContent = fmt(Math.floor(Number(bet.stake) * mult)) + ' @ ' + mult.toFixed(2) + 'x';
+    }
   } else if (phase === 'crashed') {
     const tip = drawCurve(lastProgress, true);
     drawPlane(tip.x, tip.y, true, 0);
@@ -280,73 +284,99 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-// ── action button (panel 0 only) ──────────────────────────────────────────────
-const p0 = document.querySelector('.bet-panel[data-panel="0"]');
-const p0action = p0.querySelector('.action');
-const p0main = p0action.querySelector('.action-main');
-const p0sub = p0action.querySelector('.action-sub');
-p0sub.id = 'p0sub';
-
-function updateAction() {
-  p0action.classList.remove('cashout');
-  if (phase === 'betting' && !myBet) {
-    p0action.disabled = false; p0main.textContent = 'Bet'; p0sub.textContent = betVal.toFixed(2) + ' ₹';
-  } else if (phase === 'betting' && myBet) {
-    p0action.disabled = true; p0main.textContent = 'Bet placed ✓'; p0sub.textContent = fmt(myBet.stake);
-  } else if (phase === 'flying' && myBet && !myBet.cashedOut) {
-    p0action.disabled = false; p0action.classList.add('cashout'); p0main.textContent = 'Cash Out'; p0sub.textContent = fmt(myBet.stake);
-  } else if (myBet && myBet.cashedOut) {
-    p0action.disabled = true; p0main.textContent = `Cashed @ ${myBet.cashOutAt.toFixed(2)}x`; p0sub.textContent = fmt(myBet.payout || 0);
-  } else {
-    p0action.disabled = true; p0main.textContent = 'Bet'; p0sub.textContent = betVal.toFixed(2) + ' ₹';
+// ── sounds + confetti ──────────────────────────────────────────────────────────
+let actx = null;
+function sfx(kind) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    const f = { bet: 320, cash: 720, crash: 130 }[kind] || 440;
+    o.frequency.value = f; o.type = kind === 'crash' ? 'sawtooth' : 'sine';
+    g.gain.setValueAtTime(0.0001, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.18, actx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.25);
+    o.start(); o.stop(actx.currentTime + 0.26);
+  } catch {}
+}
+function confetti() {
+  const c = document.createElement('div'); c.className = 'confetti';
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('i');
+    p.style.left = Math.random() * 100 + '%';
+    p.style.background = ['#e84242', '#2dc44e', '#4da6ff', '#e8a23a', '#d46bff'][i % 5];
+    p.style.animationDelay = (Math.random() * 0.3) + 's';
+    c.appendChild(p);
   }
+  document.body.appendChild(c);
+  setTimeout(() => c.remove(), 2200);
 }
 
-async function doBet() {
+// ── two-slot bet panels (slot 0 + slot 1), with auto-cashout ───────────────────
+const panels = [0, 1].map(slot => {
+  const el = document.querySelector(`.bet-panel[data-panel="${slot}"]`);
+  el.classList.remove('visual');
+  return { slot, el, action: el.querySelector('.action'), main: el.querySelector('.action-main'), sub: el.querySelector('.action-sub'), amount: el.querySelector('.amount'), val: 10, autoOn: false, autoVal: 2.0 };
+});
+
+function updateAction(slot) {
+  const p = panels[slot], bet = myBets[slot];
+  p.action.classList.remove('cashout');
+  if (phase === 'betting' && !bet) { p.action.disabled = false; p.main.textContent = 'Bet'; p.sub.textContent = p.val.toFixed(2) + ' ₹'; }
+  else if (phase === 'betting' && bet) { p.action.disabled = true; p.main.textContent = 'Bet placed ✓'; p.sub.textContent = fmt(bet.stake); }
+  else if (phase === 'flying' && bet && !bet.cashedOut) { p.action.disabled = false; p.action.classList.add('cashout'); p.main.textContent = 'Cash Out'; p.sub.textContent = fmt(bet.stake); }
+  else if (bet && bet.cashedOut) { p.action.disabled = true; p.main.textContent = `Cashed @ ${bet.cashOutAt.toFixed(2)}x`; p.sub.textContent = fmt(bet.payout || 0); }
+  else { p.action.disabled = true; p.main.textContent = 'Bet'; p.sub.textContent = p.val.toFixed(2) + ' ₹'; }
+}
+const updateAllActions = () => { updateAction(0); updateAction(1); };
+
+async function doBet(slot) {
+  const p = panels[slot];
+  const body = { amount: p.val, slot };
+  if (p.autoOn && p.autoVal > 1) body.auto = p.autoVal;
   try {
-    const r = await fetch('/api/play/bet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: betVal }) });
+    const r = await fetch('/api/play/bet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json();
     if (!r.ok || !d.ok) return toast(errMsg(d.error));
-    myBet = d.bet; setBalance(d.balance); updateAction();
+    myBets[slot] = d.bet; setBalance(d.balance); updateAction(slot); sfx('bet');
   } catch { toast('Network error'); }
 }
-async function doCashout() {
+async function doCashout(slot) {
   try {
-    const r = await fetch('/api/play/cashout', { method: 'POST' });
+    const r = await fetch('/api/play/cashout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot }) });
     const d = await r.json();
     if (!r.ok || !d.ok) return toast(errMsg(d.error));
-    myBet = { ...myBet, cashedOut: true, cashOutAt: d.multiplier, payout: d.payout };
-    setBalance(d.balance); updateAction();
+    myBets[slot] = { ...myBets[slot], cashedOut: true, cashOutAt: d.multiplier, payout: d.payout };
+    setBalance(d.balance); updateAction(slot); sfx('cash'); confetti();
     toast(`Cashed out @ ${d.multiplier.toFixed(2)}x → ${fmt(d.payout)}`);
   } catch { toast('Network error'); }
 }
-p0action.addEventListener('click', () => {
-  if (phase === 'flying' && myBet && !myBet.cashedOut) return doCashout();
-  if (phase === 'betting' && !myBet) return doBet();
-});
 
-// ── steppers / quick picks ─────────────────────────────────────────────────────
-function wirePanel(panel, functional) {
-  const input = panel.querySelector('.amount');
-  const sub = panel.querySelector('.action-sub');
-  const setVal = (v) => {
-    v = Math.max(1, Math.round(v * 100) / 100);
-    input.value = v.toFixed(2);
-    sub.textContent = v.toFixed(2) + ' ₹';
-    if (functional) { betVal = v; if (phase === 'betting' && !myBet) p0sub.textContent = v.toFixed(2) + ' ₹'; }
-  };
-  panel.querySelector('[data-act="dec"]').onclick = () => setVal(parseFloat(input.value || '1') - 1);
-  panel.querySelector('[data-act="inc"]').onclick = () => setVal(parseFloat(input.value || '0') + 1);
-  panel.querySelectorAll('.quick button').forEach(b => b.onclick = () => setVal(Number(b.dataset.q)));
-  input.onchange = () => setVal(parseFloat(input.value || '1'));
-  panel.querySelectorAll('.ptab').forEach((t, i) => t.onclick = () => {
-    panel.querySelectorAll('.ptab').forEach(x => x.classList.remove('active')); t.classList.add('active');
+function wirePanel(p) {
+  const setVal = (v) => { v = Math.max(1, Math.round(v * 100) / 100); p.val = v; p.amount.value = v.toFixed(2); if (!myBets[p.slot] || phase !== 'flying') p.sub.textContent = v.toFixed(2) + ' ₹'; };
+  p.el.querySelector('[data-act="dec"]').onclick = () => setVal(p.val - 1);
+  p.el.querySelector('[data-act="inc"]').onclick = () => setVal(p.val + 1);
+  p.el.querySelectorAll('.quick button').forEach(b => b.onclick = () => setVal(Number(b.dataset.q)));
+  p.amount.onchange = () => setVal(parseFloat(p.amount.value || '1'));
+  // auto-cashout row (shown when the "Auto" tab is active)
+  const autoRow = document.createElement('div'); autoRow.className = 'auto-row hidden';
+  autoRow.innerHTML = `<span>Auto cashout ×</span><input class="auto-in" type="number" step="0.1" min="1.1" value="2.0" />`;
+  p.el.querySelector('.panel-body').insertBefore(autoRow, p.action);
+  const autoIn = autoRow.querySelector('.auto-in');
+  autoIn.oninput = () => { p.autoVal = Number(autoIn.value) || 2; };
+  p.el.querySelectorAll('.ptab').forEach(t => t.onclick = () => {
+    p.el.querySelectorAll('.ptab').forEach(x => x.classList.remove('active')); t.classList.add('active');
+    p.autoOn = t.textContent.trim() === 'Auto'; autoRow.classList.toggle('hidden', !p.autoOn);
   });
+  p.action.addEventListener('click', () => {
+    if (phase === 'flying' && myBets[p.slot] && !myBets[p.slot].cashedOut) return doCashout(p.slot);
+    if (phase === 'betting' && !myBets[p.slot]) return doBet(p.slot);
+  });
+  setVal(p.val);
 }
-wirePanel(p0, true);
-wirePanel(document.querySelector('.bet-panel[data-panel="1"]'), false);
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
+panels.forEach(wirePanel);
+document.querySelectorAll('#sidebar .tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('#sidebar .tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
 });
 
 // ── Cashier + Account sheet ─────────────────────────────────────────────────────
@@ -674,9 +704,30 @@ function openColour() {
 
 $('#btnGames').onclick = openLobby;
 
+// ── Provably-fair verify ────────────────────────────────────────────────────────
+let currentRoundId = null, lastRoundId = null;
+async function openVerify() {
+  openSheet('🔒 Provably fair', '<div class="muted">Loading…</div>');
+  const card = async (id, label) => {
+    if (!id) return `<div class="stat-card"><b>${label}</b><div class="muted">none yet</div></div>`;
+    try {
+      const r = await papi('/api/play/round/' + id);
+      const w = r.outcome ? (r.outcome.crashAt ? r.outcome.crashAt + '×' : (r.outcome.winner || '')) : '';
+      return `<div class="stat-card"><b>${label}</b>
+        <div class="stat-row"><span class="k">Round</span><span style="font-size:11px">${esc(id)}</span></div>
+        <div class="stat-row"><span class="k">Seed hash</span><span style="font-size:10px;word-break:break-all">${esc(r.server_seed_hash || '')}</span></div>
+        ${r.server_seed ? `<div class="stat-row"><span class="k">Revealed seed</span><span style="font-size:10px;word-break:break-all">${esc(r.server_seed)}</span></div>` : '<div class="muted">Seed reveals after the round ends.</div>'}
+        ${w ? `<div class="stat-row"><span class="k">Outcome</span><span>${esc(w)}</span></div>` : ''}</div>`;
+    } catch { return `<div class="stat-card"><b>${label}</b><div class="muted">unavailable</div></div>`; }
+  };
+  document.getElementById('sheetBody').innerHTML = `<div class="note">Each round's seed is hashed and shown before it starts, then revealed after — so outcomes can't be changed mid-round.</div>` + (await card(lastRoundId, 'Last finished round')) + (await card(currentRoundId, 'Current round'));
+}
+const fairBtn = document.getElementById('btnFair');
+if (fairBtn) fairBtn.onclick = openVerify;
+
 // ── boot ──────────────────────────────────────────────────────────────────────
 resizeCanvas();
 refreshBalance();
 connect();
-updateAction();
+updateAllActions();
 requestAnimationFrame(frame);
