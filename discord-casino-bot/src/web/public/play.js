@@ -109,24 +109,42 @@ function connect() {
 const canvas = $('#game');
 const ctx = canvas.getContext('2d');
 const gameArea = $('#gameArea');
-let rays = null;
-function resize() {
-  canvas.width = gameArea.offsetWidth;
-  canvas.height = gameArea.offsetHeight;
-  rays = document.createElement('canvas');
-  rays.width = canvas.width; rays.height = canvas.height;
-  const rc = rays.getContext('2d');
-  rc.strokeStyle = 'rgba(255,255,255,0.02)';
-  rc.lineWidth = 40;
-  const cx = canvas.width * 0.28, cy = canvas.height * 0.55;
-  for (let i = 0; i < 28; i++) {
-    const a = (i / 28) * Math.PI * 2;
-    rc.beginPath(); rc.moveTo(cx, cy);
-    rc.lineTo(cx + Math.cos(a) * canvas.width, cy + Math.sin(a) * canvas.width);
+let raysCanvas = null;
+const originX = () => canvas.width * 0.35;
+const originY = () => canvas.height * 0.55;
+
+function resizeCanvas() {
+  const rect = gameArea.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.floor(rect.width));
+  canvas.height = Math.max(1, Math.floor(rect.height));
+
+  // Pre-render faint rays once to an offscreen canvas.
+  raysCanvas = document.createElement('canvas');
+  raysCanvas.width = canvas.width; raysCanvas.height = canvas.height;
+  const rc = raysCanvas.getContext('2d');
+  rc.strokeStyle = 'rgba(255,255,255,0.022)';
+  rc.lineWidth = 90;
+  const ox = originX(), oy = originY(), len = canvas.width * 1.8, n = 28;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    rc.beginPath(); rc.moveTo(ox, oy);
+    rc.lineTo(ox + Math.cos(a) * len, oy + Math.sin(a) * len);
     rc.stroke();
   }
 }
-window.addEventListener('resize', resize);
+window.addEventListener('load', resizeCanvas);
+window.addEventListener('resize', resizeCanvas);
+
+// Soft radial glow + the faint rays — drawn every frame as the background.
+function drawBackground() {
+  const ox = originX(), oy = originY();
+  const glow = ctx.createRadialGradient(ox, oy, 0, ox, oy, 120);
+  glow.addColorStop(0, 'rgba(255,255,255,0.06)');
+  glow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(ox, oy, 120, 0, Math.PI * 2); ctx.fill();
+  if (raysCanvas) ctx.drawImage(raysCanvas, 0, 0);
+}
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -137,15 +155,20 @@ function planePos(progress) {
 }
 
 function drawPlane(x, y, crashed) {
-  const s = 38;
+  const s = 42;
   ctx.save();
   ctx.translate(x, y);
-  if (crashed) ctx.rotate(0.6);
-  ctx.fillStyle = crashed ? '#c03030' : '#e84242';
-  ctx.beginPath(); ctx.moveTo(0.6 * s, 0); ctx.lineTo(-0.3 * s, -0.18 * s); ctx.lineTo(-0.3 * s, 0.18 * s); ctx.closePath(); ctx.fill();
+  if (crashed) ctx.rotate(0.5);
+  // body
+  ctx.beginPath();
+  ctx.moveTo(s * 0.6, 0); ctx.lineTo(s * -0.3, s * -0.18); ctx.lineTo(s * -0.3, s * 0.18); ctx.closePath();
+  ctx.fillStyle = crashed ? '#c03030' : '#e84242'; ctx.fill();
+  // wings
   ctx.fillStyle = crashed ? '#a02020' : '#c03030';
-  ctx.beginPath(); ctx.moveTo(-0.05 * s, -0.18 * s); ctx.lineTo(-0.35 * s, -0.42 * s); ctx.lineTo(-0.55 * s, -0.22 * s); ctx.lineTo(-0.3 * s, -0.1 * s); ctx.closePath(); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(-0.05 * s, 0.18 * s); ctx.lineTo(-0.35 * s, 0.42 * s); ctx.lineTo(-0.55 * s, 0.22 * s); ctx.lineTo(-0.3 * s, 0.1 * s); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(s * -0.05, s * -0.18); ctx.lineTo(s * -0.35, s * -0.45); ctx.lineTo(s * -0.55, s * -0.22); ctx.lineTo(s * -0.3, s * -0.08); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(s * -0.05, s * 0.18); ctx.lineTo(s * -0.35, s * 0.45); ctx.lineTo(s * -0.55, s * 0.22); ctx.lineTo(s * -0.3, s * 0.08); ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
@@ -167,7 +190,7 @@ function drawTrail() {
 
 function frame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (rays) ctx.drawImage(rays, 0, 0);
+  drawBackground();
 
   if (phase === 'flying' && startTime) {
     const elapsed = now() - startTime;
@@ -180,20 +203,21 @@ function frame() {
     drawTrail();
     drawPlane(p.x, p.y, false);
     $('#multiplier').textContent = mult.toFixed(2) + 'x';
-    // live cash-out preview
-    if (myBet && !myBet.cashedOut) {
+    if (myBet && !myBet.cashedOut)
       $('#p0sub').textContent = fmt(Math.floor(Number(myBet.stake) * mult)) + ' @ ' + mult.toFixed(2) + 'x';
-    }
   } else if (phase === 'crashed') {
     drawTrail();
     const p = trail.length ? trail[trail.length - 1] : planePos(0.5);
     drawPlane(p.x, p.y, true);
-  } else if (phase === 'betting') {
-    drawPlane(canvas.width * 0.05, canvas.height * 0.88, false);
-    const secs = bettingEndsAt ? Math.max(0, Math.ceil((bettingEndsAt - now()) / 1000)) : 0;
-    const b = $('#statusBanner'); b.className = 'banner bet'; b.textContent = `Place your bets — ${secs}s`; b.classList.remove('hidden');
   }
-  if (phase !== 'betting') $('#statusBanner').classList.add('hidden');
+  // betting / waiting: background only (no plane, no trail)
+
+  if (phase === 'betting') {
+    const secs = bettingEndsAt ? Math.max(0, Math.ceil((bettingEndsAt - now()) / 1000)) : 0;
+    const b = $('#statusBanner'); b.className = 'banner wait'; b.textContent = `Place your bets — ${secs}s`; b.classList.remove('hidden');
+  } else {
+    $('#statusBanner').classList.add('hidden');
+  }
 
   requestAnimationFrame(frame);
 }
@@ -268,7 +292,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 });
 
 // ── boot ──────────────────────────────────────────────────────────────────────
-resize();
+resizeCanvas();
 refreshBalance();
 connect();
 updateAction();
