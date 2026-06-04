@@ -62,3 +62,16 @@ export function slotsSpin(seed, discordId, preset) {
   const win = reels[0].s === reels[1].s && reels[1].s === reels[2].s;
   return { reels, win, mult: win ? reels[0].pay : 0 };
 }
+
+// ── Mines ──────────────────────────────────────────────────────────────────
+// 20-tile grid (indices 0..19), same as the Discord game so payouts match.
+export const MINES_TILES = 20;
+export function minesBombs(seed, mines) {
+  const bombs = new Set();
+  let n = 0;
+  while (bombs.size < mines) bombs.add(Math.floor(rngFloat(seed, 'b', n++) * MINES_TILES));
+  return [...bombs];
+}
+export function minesMultiplier(safeRevealed, mines) {
+  return +(Math.pow(MINES_TILES / (MINES_TILES - mines), safeRevealed) * 0.97).toFixed(4);
+}

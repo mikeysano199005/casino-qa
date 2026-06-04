@@ -469,12 +469,14 @@ function openLobby() {
     <div class="lobby-card" data-g="aviator"><div class="lobby-emoji">✈</div><div class="lobby-name">Aviator</div></div>
     <div class="lobby-card" data-g="dice"><div class="lobby-emoji">🎲</div><div class="lobby-name">Dice</div></div>
     <div class="lobby-card" data-g="slots"><div class="lobby-emoji">🎰</div><div class="lobby-name">Slots</div></div>
+    <div class="lobby-card" data-g="mines"><div class="lobby-emoji">💣</div><div class="lobby-name">Mines</div></div>
   </div>`);
   sheet.querySelectorAll('[data-g]').forEach(c => c.onclick = () => {
     const g = c.dataset.g;
     if (g === 'aviator') return closeSheet();
     if (g === 'dice') return openDice();
     if (g === 'slots') return openSlots();
+    if (g === 'mines') return openMines();
   });
 }
 
@@ -553,6 +555,71 @@ function openSlots() {
       }, 600);
     } catch (e) { clearInterval(spin); toast(diceErr(e)); }
   };
+}
+
+function openMines() {
+  openSheet('💣 Mines', `
+    <div class="stat-row"><span class="k">Multiplier</span><span id="mMult">1.00×</span></div>
+    <div class="stat-row"><span class="k">Cash out</span><span id="mCash">—</span></div>
+    <div class="mines-grid" id="mGrid"></div>
+    <div id="mSetup">
+      <div class="fld"><label>Mines: <span id="mNval">3</span></label><input id="mN" type="range" min="1" max="19" value="3" style="width:100%" /></div>
+      <div class="fld"><label>Bet (₹)</label><input id="mAmt" type="number" value="10" /></div>
+      <div class="chips">${[10, 20, 50, 100].map(v => `<button data-ma="${v}">${v}</button>`).join('')}</div>
+      <button class="big-btn" id="mStart">Start game</button>
+    </div>
+    <button class="big-btn alt hidden" id="mCashBtn">Cash out</button>`);
+
+  const grid = document.getElementById('mGrid');
+  const drawGrid = (revealed = [], disabled = false, bombs = null) => {
+    grid.innerHTML = '';
+    for (let i = 0; i < 20; i++) {
+      const t = document.createElement('div');
+      const isGem = revealed.includes(i);
+      const isBomb = bombs && bombs.includes(i);
+      t.className = 'mtile' + (isGem ? ' gem done' : '') + (isBomb ? ' bomb done' : '') + (disabled ? ' done' : '');
+      t.textContent = isGem ? '💎' : isBomb ? '💣' : '';
+      if (!disabled && !isGem) t.onclick = () => reveal(i);
+      grid.appendChild(t);
+    }
+  };
+  const setActive = (active) => {
+    document.getElementById('mSetup').classList.toggle('hidden', active);
+    document.getElementById('mCashBtn').classList.toggle('hidden', !active);
+  };
+  const upd = (mult, next) => {
+    document.getElementById('mMult').textContent = Number(mult).toFixed(2) + '×';
+    if (next != null) document.getElementById('mCash').textContent = 'next ' + Number(next).toFixed(2) + '×';
+  };
+  document.getElementById('mN').oninput = (e) => document.getElementById('mNval').textContent = e.target.value;
+  sheet.querySelectorAll('[data-ma]').forEach(b => b.onclick = () => document.getElementById('mAmt').value = b.dataset.ma);
+  drawGrid();
+
+  async function reveal(idx) {
+    try {
+      const d = await papi('/api/play/mines/reveal', { method: 'POST', body: { idx } });
+      if (d.bomb) { drawGrid([], true, d.bombs); setBalance(d.balance); upd(0); setActive(false); toast('💥 Boom! Bet lost'); return; }
+      drawGrid(d.revealed); upd(d.multiplier, d.next);
+    } catch (e) { toast(diceErr(e)); }
+  }
+  document.getElementById('mStart').onclick = async () => {
+    const amount = Number(document.getElementById('mAmt').value);
+    const mines = Number(document.getElementById('mN').value);
+    try {
+      const d = await papi('/api/play/mines/start', { method: 'POST', body: { amount, mines } });
+      setBalance(d.balance); setActive(true); drawGrid([]); upd(1, null);
+      document.getElementById('mCash').textContent = '—';
+    } catch (e) { toast({ active_game: 'Finish your current mines game first', ...{} }[e.data?.error] || diceErr(e)); }
+  };
+  document.getElementById('mCashBtn').onclick = async () => {
+    try { const d = await papi('/api/play/mines/cashout', { method: 'POST' }); setBalance(d.balance); drawGrid([], true, d.bombs); setActive(false); toast(`💰 Cashed out ${fmt(d.payout)} (${Number(d.multiplier).toFixed(2)}×)`); }
+    catch (e) { toast({ no_gems: 'Reveal at least one tile first' }[e.data?.error] || 'Cash out failed'); }
+  };
+
+  // resume an in-progress game if one exists
+  papi('/api/play/mines/state').then(st => {
+    if (st.active) { setActive(true); drawGrid(st.revealed); upd(st.multiplier, st.next); }
+  }).catch(() => {});
 }
 
 $('#btnGames').onclick = openLobby;
