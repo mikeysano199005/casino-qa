@@ -127,6 +127,25 @@ function connect() {
 const canvas = $('#game');
 const ctx = canvas.getContext('2d');
 const gameArea = $('#gameArea');
+
+// Red Aviator plane as an inline SVG image (nose points right). Self-contained.
+const PLANE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 64">
+  <path d="M16 31 L3 12 L24 29 Z" fill="#b01d1d"/>
+  <path d="M42 35 L20 58 L46 41 L60 37 Z" fill="#9c1818"/>
+  <path d="M42 29 L26 6 L50 25 L62 30 Z" fill="#cf2323"/>
+  <path d="M12 32 Q42 17 80 29 Q87 32 80 35 Q42 47 12 35 Z" fill="#e62929"/>
+  <ellipse cx="52" cy="29" rx="11" ry="4.2" fill="#7c1414"/>
+  <g stroke="#fff" stroke-width="2.6" stroke-linecap="round">
+    <line x1="45" y1="26.5" x2="54" y2="35.5"/><line x1="54" y1="26.5" x2="45" y2="35.5"/>
+  </g>
+  <circle cx="82" cy="32" r="4.2" fill="#222"/>
+  <g fill="#1c1c1c"><ellipse cx="86" cy="19" rx="3" ry="12.5"/><ellipse cx="86" cy="45" rx="3" ry="12.5"/></g>
+</svg>`;
+const planeImg = new Image();
+let planeReady = false;
+planeImg.onload = () => { planeReady = true; };
+planeImg.src = 'data:image/svg+xml;base64,' + btoa(PLANE_SVG);
+
 let raysCanvas = null;
 let rayAngle = 0;
 const SUN_X = () => canvas.width * 0.46;
@@ -210,20 +229,19 @@ function drawCurve(progress, crashed) {
 }
 
 function drawPlane(x, y, crashed, angle) {
-  const s = 46;
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(crashed ? 0.5 : (angle || 0));
-  // body
-  ctx.beginPath();
-  ctx.moveTo(s * 0.6, 0); ctx.lineTo(s * -0.3, s * -0.18); ctx.lineTo(s * -0.3, s * 0.18); ctx.closePath();
-  ctx.fillStyle = crashed ? '#c03030' : '#e84242'; ctx.fill();
-  // wings
-  ctx.fillStyle = crashed ? '#a02020' : '#c03030';
-  ctx.beginPath();
-  ctx.moveTo(s * -0.05, s * -0.18); ctx.lineTo(s * -0.35, s * -0.45); ctx.lineTo(s * -0.55, s * -0.22); ctx.lineTo(s * -0.3, s * -0.08); ctx.closePath(); ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(s * -0.05, s * 0.18); ctx.lineTo(s * -0.35, s * 0.45); ctx.lineTo(s * -0.55, s * 0.22); ctx.lineTo(s * -0.3, s * 0.08); ctx.closePath(); ctx.fill();
+  ctx.rotate(crashed ? 0.4 : (angle || 0));
+  if (crashed) ctx.globalAlpha = 0.85;
+  if (planeReady) {
+    const w = 96, h = w * (64 / 100);
+    ctx.drawImage(planeImg, -w * 0.55, -h * 0.5, w, h); // nose near the curve tip
+  } else {
+    const s = 46; // fallback triangle until the image loads
+    ctx.beginPath();
+    ctx.moveTo(s * 0.6, 0); ctx.lineTo(s * -0.3, s * -0.18); ctx.lineTo(s * -0.3, s * 0.18); ctx.closePath();
+    ctx.fillStyle = '#e84242'; ctx.fill();
+  }
   ctx.restore();
 }
 
